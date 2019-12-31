@@ -114,6 +114,9 @@ class DQN_Agent(Agent):
         self.replay_buffer = ReplayMemory(buffer_size)
         self.learning = False
         self.writer = SummaryWriter(log_dir=path)
+        example_input = torch.rand(100, env.observation_space.shape[0])
+        self.writer.add_graph(self.Q_net, example_input)
+
 
     def forward(self, observation):
         observation = observation.astype(np.float32)

@@ -1,0 +1,2 @@
+Logging to savedate/CartPole-v0dqn19123110/
+episode_Q_value:[]	episode_loss:[]	episode_reward:[14.0]	episodes:1	mean 100 episode reward:nan     	step_used:14	steps:14	

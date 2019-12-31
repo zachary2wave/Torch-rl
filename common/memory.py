@@ -23,10 +23,13 @@ class ReplayMemory(object):
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
-        sample_index = random.sample(range(self.capacity), batch_size)
-        sample = dict()
+        sample_index = random.sample(range(self.position), batch_size)
+        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
         for key in self.memory.keys():
-            sample[key] = self.memory[key][sample_index]
+            for index in sample_index:
+                sample[key].append(self.memory[key][index])
+            sample[key] = np.array(sample[key],dtype=np.float32)
+            sample[key] = torch.from_numpy(sample[key])
         return sample
 
     def extract_last_ep(self, during):
@@ -35,11 +38,6 @@ class ReplayMemory(object):
         for key in self.memory.keys():
             sample[key] = self.memory[key][sample_index]
         return sample
-
-
-
-
-
 
     def __len__(self):
         return len(self.memory)

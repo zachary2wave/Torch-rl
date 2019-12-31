@@ -80,7 +80,7 @@ class Agent(ABC):
                 ep_r += r
                 ep_q += q[a]
                 ep_l += loss
-                if verbose == 1:
+                if verbose == 1 and self.step > self.learning_starts:
                     logger.record_tabular("steps", self.step)
                     logger.record_tabular("episodes", self.episode)
                     logger.record_tabular("loss", loss)
@@ -94,10 +94,10 @@ class Agent(ABC):
                         self.csvwritter.writekvs(kvs)
                 if done:
                     ep_reward.append(np.mean(ep_r))
-                    # ep_Q_value.append(np.mean(ep_q))
-                    # ep_loss.append(np.mean(ep_l))
+                    ep_Q_value.append(np.mean(ep_q))
+                    ep_loss.append(np.mean(ep_l))
                     mean_100ep_reward = round(np.mean(ep_reward[-101:-1]), 1)
-                    if verbose == 2:
+                    if verbose == 2 and self.step > self.learning_starts:
                         logger.record_tabular("steps", self.step)
                         logger.record_tabular("episodes", self.episode)
                         logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
