@@ -57,7 +57,6 @@ class HumanOutputFormat(KVWriter, SeqWriter):
         for (key, val) in sorted(key2str.items()):
             lines += key + ":" + val + "\t"
         self.file.write('\n'.join( [lines]) + '\n')
-
         # Flush the output to the file
         self.file.flush()
 
@@ -151,6 +150,9 @@ class TensorBoardOutputFormat(KVWriter):
         from torch.utils.tensorboard import SummaryWriter
         self.writer = SummaryWriter(log_dir=dir)
 
+    def get_writer(self):
+        return self.writer
+
     def writekvs(self, kvs):
         for k, v in kvs.items():
             self.writer.add_scalar(k, v, walltime=time.time())
@@ -182,7 +184,7 @@ def make_output_format(format, ev_dir, log_suffix=''):
     elif format == 'csv':
         return CSVOutputFormat(osp.join(ev_dir, 'progress%s.csv' % log_suffix))
     elif format == 'tensorboard':
-        return TensorBoardOutputFormat(osp.join(ev_dir, 'tb%s' % log_suffix))
+        return TensorBoardOutputFormat(osp.join(ev_dir, '%s' % log_suffix))
     else:
         raise ValueError('Unknown format specified: %s' % (format,))
 

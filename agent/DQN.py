@@ -13,16 +13,17 @@ class Dueling_dqn(nn.Module):
     def __init__(self, model, dueling_way):
         super(Dueling_dqn, self).__init__()
         self.dueling_way = dueling_way
-        self.new_model = nn.Sequential(*list(model.model.children())[:-1])
+        self.model_layer = model.linears[:-1]
         layer_infor = model.layer_infor
         self.A_est = nn.Linear(layer_infor[-2], layer_infor[-1])
         self.V_est = nn.Linear(layer_infor[-2], 1)
-        self.V_act = nn.ReLU()
 
     def forward(self, obs):
-        main_out = self.new_model.forward(obs)
-        A = F.relu(self.A_est(main_out))
-        V = self.V_est(main_out)
+        x = obs
+        for layer in self.model_layer:
+            x = layer(x)
+        A = F.relu(self.A_est(x))
+        V = self.V_est(x)
         if self.dueling_way == "native":
             A = A
         elif self.dueling_way == "mean":
@@ -34,12 +35,12 @@ class Dueling_dqn(nn.Module):
 class DQN_Agent(Agent):
     def __init__(self, env, model, policy,
                  ## hyper-parameter
-                 gamma=0.99, lr=5e-4, batch_size=32, buffer_size=50000, learning_starts=1000,
-                 target_network_update_freq=500,
+                 gamma=0.90, lr=1e-4, batch_size=32, buffer_size=50000, learning_starts=1000,
+                 target_network_update_freq=1000,
                  ## decay
-                 decay = False, decay_rate = 0.9,
+                 decay=False, decay_rate=0.9,
                  ## DDqn && DuelingDQN
-                 double_dqn=True, dueling_dqn = True, dueling_way = "mean",
+                 double_dqn=True, dueling_dqn=True, dueling_way="native",
                  ## prioritized_replay
                  prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
@@ -87,8 +88,6 @@ class DQN_Agent(Agent):
         :param network_kwargs:
         """
 
-        super(DQN_Agent, self).__init__(path)
-
         self.env = env
         self.policy = policy
 
@@ -103,7 +102,7 @@ class DQN_Agent(Agent):
         else:
             self.Q_net = model
 
-        self.target_Q_net = deepcopy(model)
+        self.target_Q_net = deepcopy(self.Q_net)
 
         q_net_optim = Adam(self.Q_net.parameters(), lr=lr)
         if decay:
@@ -113,10 +112,7 @@ class DQN_Agent(Agent):
 
         self.replay_buffer = ReplayMemory(buffer_size)
         self.learning = False
-        self.writer = SummaryWriter(log_dir=path)
-        example_input = torch.rand(100, env.observation_space.shape[0])
-        self.writer.add_graph(self.Q_net, example_input)
-
+        super(DQN_Agent, self).__init__(path)
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
@@ -134,18 +130,23 @@ class DQN_Agent(Agent):
         if self.step > self.learning_starts and self.learning:
             sample = self.replay_buffer.sample(self.batch_size)
             assert len(sample["s"]) == self.batch_size
-            Q = self.Q_net(sample["s"]).gather(1, sample["a"].long())
+            a = sample["a"].long().unsqueeze(1)
+            Q = self.Q_net(sample["s"]).gather(1, a)
             if self.double_dqn:
-                _, next_actions = self.Q_net(sample["s"]).max(1, keepdim=True)
+                _, next_actions = self.Q_net(sample["s_"]).max(1, keepdim=True)
                 targetQ = self.target_Q_net(sample["s_"]).gather(1, next_actions)
             else:
                 targetQ = self.target_Q_net(sample["s_"]).max(1, keepdim=True)
+            targetQ = targetQ.squeeze(1)
+            Q = Q.squeeze(1)
             expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
-            loss = huber_loss(expected_q_values-Q)
+            loss = torch.mean(huber_loss(expected_q_values-Q))
             self.Q_net.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.Q_net.parameters(), 1, norm_type=2)
             self.optim.step()
+            if self.step % self.target_network_update_freq == 0:
+                self.target_net_update()
             return loss
         return 0
 

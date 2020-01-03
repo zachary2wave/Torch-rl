@@ -3,7 +3,8 @@ from abc import ABC
 import numpy as np
 from common import logger
 from common.logger import CSVOutputFormat
-
+import torch
+from torch.autograd import Variable
 
 class Agent(ABC):
     """
@@ -24,25 +25,34 @@ class Agent(ABC):
     def __init__(self, path):
         self.step = 0
         self.episode = 0
-        logger.configure(path, ["log", 'tensorboard'])
+        """
+        config the logfile 
+        """
+        configlist = ["stdout", "log", 'tensorboard']
+        logger.configure(path, configlist)
         self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
+        loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
+        self.writer = loggerCEN.writer
+        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        self.writer.add_graph(self.Q_net, input_to_model=example_input)
 
     def imitation_learning(self):
         pass
 
-    def train(self, max_ep_time, max_ep_cycle=2000, verbose=2, record_ep_inter=None):
+    def train(self, max_step=None, max_ep_cycle=2000, verbose=2,render = False, record_ep_inter=None):
         self.learning = True
-        self.fit(max_ep_time, max_ep_cycle=max_ep_cycle,
+        self.fit(max_step=max_step, max_ep_cycle=max_ep_cycle,render = render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
-    def test(self, max_ep_time, max_ep_cycle=2000, verbose=2, record_ep_inter=None):
+    def test(self, max_step=None, max_ep_cycle=2000, verbose=2,render = False, record_ep_inter=None):
         self.learning = False
-        self.fit(max_ep_time, max_ep_cycle=max_ep_cycle,
+        self.fit(max_step=max_step, max_ep_cycle=max_ep_cycle,render = render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
-    def fit(self, max_ep_time, max_ep_cycle = 2000,
+    def fit(self, max_step=50000, max_ep_cycle=2000, render = False,
             verbose=1, record_ep_inter=None):
         '''
+        :param max_step:
         :param max_ep_time:
         :param max_ep_cycle:  max step in per circle
         .........................show parameter..................................
@@ -54,18 +64,18 @@ class Agent(ABC):
         :return: None
         '''
         # if IL_time is not None:
+
         # .....................initially——recode...........................#
         ep_reward = []
         ep_Q_value = []
         ep_loss = []
 
-        for ep in range(max_ep_time):
+        while self.episode < max_step:
             s = self.env.reset()
             'reset the ep record'
             ep_r, ep_q, ep_l = 0, 0, 0
             'reset the RL flag'
             ep_cycle, done = 0, 0
-
             self.episode += 1
             while done == 0 and ep_cycle < max_ep_cycle:
                 self.step += 1
@@ -75,7 +85,8 @@ class Agent(ABC):
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
                 loss = self.backward(sample)
-
+                if render:
+                    self.env.render()
                 'the record part'
                 ep_r += r
                 ep_q += q[a]
@@ -93,17 +104,17 @@ class Agent(ABC):
                                "tr": done, "ep": ep, "step": self.step, "ep_step": ep_cycle}
                         self.csvwritter.writekvs(kvs)
                 if done:
-                    ep_reward.append(np.mean(ep_r))
-                    ep_Q_value.append(np.mean(ep_q))
-                    ep_loss.append(np.mean(ep_l))
+                    ep_reward.append(ep_r)
+                    ep_Q_value.append(ep_q)
+                    ep_loss.append(ep_l)
                     mean_100ep_reward = round(np.mean(ep_reward[-101:-1]), 1)
                     if verbose == 2 and self.step > self.learning_starts:
                         logger.record_tabular("steps", self.step)
                         logger.record_tabular("episodes", self.episode)
                         logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
-                        logger.record_tabular("episode_reward", ep_reward)
-                        logger.record_tabular("episode_loss", ep_loss)
-                        logger.record_tabular("episode_Q_value", ep_Q_value)
+                        logger.record_tabular("episode_reward", ep_reward[-1])
+                        logger.record_tabular("episode_loss", ep_l.detach().numpy())
+                        logger.record_tabular("episode_Q_value", ep_q)
                         logger.record_tabular("step_used", ep_cycle)
                         logger.dump_tabular()
 

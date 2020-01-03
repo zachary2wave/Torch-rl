@@ -10,8 +10,11 @@ env = gym.make(envID)
 nowtime = time.strftime('%y%m%d%H',time.localtime())
 path = "savedate" + '/' + envID + "dqn" + nowtime+'/'
 #%%
-policy = BoltzmannQPolicy()
-model = DenseNet(env.observation_space.shape[0], env.action_space.n, hidden_activate=nn.ReLU())
-Agent = DQN_Agent(env, model, policy, path=path)
-Agent.train(2000)
 
+policy = BoltzmannQPolicy()
+model = DenseNet(env.observation_space.shape[0], env.action_space.n, hidden_activate=nn.Tanh())
+
+Agent = DQN_Agent(env, model, policy, path=path)
+
+Agent.train(max_step=50000, render=False, verbose=2)
+Agent.test(max_step=50000, render=False, verbose=2)
