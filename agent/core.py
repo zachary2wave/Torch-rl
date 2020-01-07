@@ -39,17 +39,17 @@ class Agent(ABC):
     def imitation_learning(self):
         pass
 
-    def train(self, max_step=None, max_ep_cycle=2000, verbose=2,render = False, record_ep_inter=None):
+    def train(self, max_step=None, max_ep_cycle=2000, verbose=2, render=False, record_ep_inter=None):
         self.learning = True
-        self.fit(max_step=max_step, max_ep_cycle=max_ep_cycle,render = render,
+        self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
-    def test(self, max_step=None, max_ep_cycle=2000, verbose=2,render = False, record_ep_inter=None):
+    def test(self, max_step=None, max_ep_cycle=2000, verbose=2, render=False, record_ep_inter=None):
         self.learning = False
-        self.fit(max_step=max_step, max_ep_cycle=max_ep_cycle,render = render,
+        self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle,render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
-    def fit(self, max_step=50000, max_ep_cycle=2000, render = False,
+    def interact(self, max_step=50000, max_ep_cycle=2000, render = False,
             verbose=1, record_ep_inter=None):
         '''
         :param max_step:
@@ -70,7 +70,7 @@ class Agent(ABC):
         ep_Q_value = []
         ep_loss = []
 
-        while self.episode < max_step:
+        while self.step < max_step:
             s = self.env.reset()
             'reset the ep record'
             ep_r, ep_q, ep_l = 0, 0, 0
@@ -84,6 +84,7 @@ class Agent(ABC):
                 a, q = self.forward(s)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
+                s = s_
                 loss = self.backward(sample)
                 if render:
                     self.env.render()
@@ -96,12 +97,12 @@ class Agent(ABC):
                     logger.record_tabular("episodes", self.episode)
                     logger.record_tabular("loss", loss)
                     logger.record_tabular("reward", r)
-                    logger.record_tabular("Q_value", round(q[a]))
+                    logger.record_tabular("Q_value", round(q[a].date.numpy()))
                     logger.dump_tabular()
                 if record_ep_inter is not None:
-                    if ep % record_ep_inter == 0:
+                    if self.episode % record_ep_inter == 0:
                         kvs = {"s": s, "a": a, "s_": s_, "r": r,
-                               "tr": done, "ep": ep, "step": self.step, "ep_step": ep_cycle}
+                               "tr": done, "ep": self.episode, "step": self.step, "ep_step": ep_cycle}
                         self.csvwritter.writekvs(kvs)
                 if done:
                     ep_reward.append(ep_r)
@@ -113,7 +114,7 @@ class Agent(ABC):
                         logger.record_tabular("episodes", self.episode)
                         logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
                         logger.record_tabular("episode_reward", ep_reward[-1])
-                        logger.record_tabular("episode_loss", ep_l.detach().numpy())
+                        logger.record_tabular("episode_loss", ep_l)
                         logger.record_tabular("episode_Q_value", ep_q)
                         logger.record_tabular("step_used", ep_cycle)
                         logger.dump_tabular()
@@ -160,4 +161,45 @@ class Agent(ABC):
             overwrite (boolean): If `False` and `filepath` already exists, raises an error.
         """
         raise NotImplementedError()
+
+    def Imitation_Learning(self, step_time, data=None, policy=None, verbose=2):
+        '''
+        :param data:  the data is a list, and each element is a dict with 5 keys s,a,r,s_,tr
+        sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
+        :param policy:
+        :return:
+        '''
+        if data is not None and policy is not None:
+            raise Exception("The IL only need one way to guide, Please make sure the input ")
+
+        if data is not None:
+            for time in step_time:
+                self.step += 1
+                loss = self.backward(data[time])
+                if verbose == 1:
+                    logger.record_tabular("steps", self.step)
+                    logger.record_tabular("loss", loss)
+                    logger.dumpkvs()
+
+        if policy is not None:
+            s = self.env.reset()
+            for time in step_time:
+                self.step += 1
+                a = policy(s)
+                s_, r, done, info = self.env.step(a)
+                sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
+                loss = self.backward(sample)
+                s = s_
+                if verbose == 1:
+                    logger.record_tabular("steps", self.step)
+                    logger.record_tabular("loss", loss)
+                    logger.dumpkvs()
+
+
+
+
+
+
+
+
 

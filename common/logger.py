@@ -154,8 +154,10 @@ class TensorBoardOutputFormat(KVWriter):
         return self.writer
 
     def writekvs(self, kvs):
+        step = int(kvs["steps"])
         for k, v in kvs.items():
-            self.writer.add_scalar(k, v, walltime=time.time())
+
+            self.writer.add_scalar(k, v, global_step=step, walltime=time.time())
         # def summary_val(k, v):
         #     kwargs = {'tag': k, 'simple_value': float(v)}
         #     return self.tf.Summary.Value(**kwargs)

@@ -23,7 +23,7 @@ class ReplayMemory(object):
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
-        sample_index = random.sample(range(self.position), batch_size)
+        sample_index = random.sample(range(len(self.memory["s"])), batch_size)
         sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
         for key in self.memory.keys():
             for index in sample_index:

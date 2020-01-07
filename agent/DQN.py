@@ -35,20 +35,18 @@ class Dueling_dqn(nn.Module):
 class DQN_Agent(Agent):
     def __init__(self, env, model, policy,
                  ## hyper-parameter
-                 gamma=0.90, lr=1e-4, batch_size=32, buffer_size=50000, learning_starts=1000,
+                 gamma=0.90, lr=1e-3, batch_size=32, buffer_size=50000, learning_starts=1000,
                  target_network_update_freq=1000,
                  ## decay
                  decay=False, decay_rate=0.9,
                  ## DDqn && DuelingDQN
-                 double_dqn=True, dueling_dqn=True, dueling_way="native",
+                 double_dqn=True, dueling_dqn=False, dueling_way="native",
                  ## prioritized_replay
                  prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
                  prioritized_replay_eps=1e-6, param_noise=False,
                  ##
-                 path=None,
-                 ## imitation_learning_part
-                 imitation_learning_policy=None, IL_time = 100):
+                 path=None):
 
         """
 
@@ -62,9 +60,7 @@ class DQN_Agent(Agent):
         :param lr:
         :param batchsize:
         :param buffer_size:
-
         :param target_network_update_freq:
-
         .........................further improve way..................................
         :param double_dqn:  whether enable DDQN
         :param dueling_dqn: whether dueling DDQN
@@ -147,6 +143,7 @@ class DQN_Agent(Agent):
             self.optim.step()
             if self.step % self.target_network_update_freq == 0:
                 self.target_net_update()
+            loss = loss.data.numpy()
             return loss
         return 0
 
@@ -164,7 +161,8 @@ class DQN_Agent(Agent):
                     "target_Q_net": self.target_Q_net,
                     "optim": self.optim
                     }, filepath+"DQN.pkl")
-    # def imitation_learning(self):
+
+
 
 
 
