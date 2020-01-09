@@ -98,6 +98,11 @@ class DenseNet(nn.Module):
         return list(self._layer_num)
 
 
-
+class LSTM(nn.Module):
+    def __init__(self, input_size, output_size, hidden_layer=np.array([64, 64]),
+                       hidden_activate=nn.ReLU(), output_activate=None,
+                       BatchNorm = False):
+        super(LSTM, self).__init__()
+    
 
 

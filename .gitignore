@@ -1,2 +1,5 @@
 
 *.pyc
+savedate/.DS_Store
+*.txt
+*.csv
