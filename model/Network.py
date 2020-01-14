@@ -66,12 +66,12 @@ def show(net):
 
 
 class DenseNet(nn.Module):
-    def __init__(self, input_size, output_size, hidden_layer=np.array([64, 64]),
+    def __init__(self, input_size, output_size, hidden_layer=[64, 64],
                        hidden_activate=nn.ReLU(), output_activate=None,
                        BatchNorm = False):
         super(DenseNet, self).__init__()
-        first_placeholder = np.insert(hidden_layer, 0, input_size)
-        second_placeholder = hidden_layer
+        first_placeholder = np.insert(np.array(hidden_layer), 0, input_size)
+        second_placeholder = np.array(hidden_layer)
         self._layer_num = np.append(first_placeholder, output_size)
         self.layer = []
         for i in range(len(second_placeholder)):
@@ -98,11 +98,45 @@ class DenseNet(nn.Module):
         return list(self._layer_num)
 
 
-class LSTM(nn.Module):
-    def __init__(self, input_size, output_size, hidden_layer=np.array([64, 64]),
+class LSTM_Dense(nn.Module):
+    def __init__(self, input_size, output_size, lstm_unit=64, lstm_layer=1, dense_layer=[64, 64],
                        hidden_activate=nn.ReLU(), output_activate=None,
                        BatchNorm = False):
-        super(LSTM, self).__init__()
-    
+        super(LSTM_Dense, self).__init__()
+
+        self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
+                               hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
+
+        self._layer_num = [input_size]+[lstm_unit]*lstm_layer+dense_layer+output_size
+        self.LSTM = nn.LSTM(input_size=input_size,
+                            output_size=lstm_unit,
+                            num_layers=lstm_layer,
+                            batch_first=True)
+
+    def forward(self, x, h_state):
+        x, h_state = self.LSTM(x, h_state)
+        for layer in self.linears:
+            x = layer(x)
+        return x
 
 
+class LSTM_Dense(nn.Module):
+    def __init__(self, input_size, output_size, lstm_unit=64, lstm_layer=1, dense_layer=[64, 64],
+                       hidden_activate=nn.ReLU(), output_activate=None,
+                       BatchNorm = False):
+        super(LSTM_Dense, self).__init__()
+
+        self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
+                               hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
+
+        self._layer_num = [input_size]+[lstm_unit]*lstm_layer+dense_layer+output_size
+        self.LSTM = nn.LSTM(input_size=input_size,
+                            output_size=lstm_unit,
+                            num_layers=lstm_layer,
+                            batch_first=True)
+
+    def forward(self, x, h_state):
+        x, h_state = self.LSTM(x, h_state)
+        for layer in self.linears:
+            x = layer(x)
+        return x
