@@ -33,6 +33,8 @@ class DDPG_Agent(Agent):
         self.batch_size = batch_size
         self.learning_starts = learning_starts
 
+        self.replay_buffer = ReplayMemory(buffer_size)
+
         self.actor_training_freq, self.critic_training_freq = actor_training_freq, critic_training_freq
         self.actor_target_network_update_freq = actor_target_network_update_freq
         self.critic_target_network_update_freq = critic_target_network_update_freq
@@ -53,17 +55,17 @@ class DDPG_Agent(Agent):
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1, norm_type=2)
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1, norm_type=2)
         super(DDPG_Agent, self).__init__(path)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
-        self.writer.add_graph(self.actor, input_to_model=example_input)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]+env.action_space.shape[0]))
-        self.writer.add_graph(self.critic, input_to_model=example_input)
+        # example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        # self.writer.add_graph(self.actor, input_to_model=example_input)
+        # example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]+env.action_space.shape[0]))
+        # self.writer.add_graph(self.critic, input_to_model=example_input)
 
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
-        Q = self.critic(torch.stack([observation, action]), -1)
+        Q = self.critic(torch.cat((observation, action),axis=0))
         action = action.data.numpy()
         return action, Q.detach().numpy()
 
@@ -75,11 +77,11 @@ class DDPG_Agent(Agent):
             a = sample["a"].long().unsqueeze(1)
             "update the critic "
             if self.step % self.critic_training_freq == 0:
-                input = torch.stack(sample["s"], sample["a"])
-                Q = self.critic(sample["s"], sample["a"])
+                input = torch.cat((sample["s"], sample["a"]), -1)
+                Q = self.critic(input)
                 target_a = self.target_actor(sample["s_"])
-                target_input = torch.stack()
-                targetQ = self.target_critic(sample["s_"], target_a)
+                target_input = torch.cat((sample["s_"], target_a), -1)
+                targetQ = self.target_critic(target_input)
                 targetQ = targetQ.squeeze(1)
                 Q = Q.squeeze(1)
                 expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
@@ -90,7 +92,9 @@ class DDPG_Agent(Agent):
             "training the actor"
             if self.step % self.actor_training_freq == 0:
                 action = self.actor(sample["s"])
-                Q = self.critic(sample["s"],action)
+                input = torch.cat((sample["s"], action), -1)
+                Q = self.critic(input)
+                Q = torch.mean(Q)
                 self.actor.zero_grad()
                 Q.backward()
                 self.actor_optim.step()
@@ -98,6 +102,8 @@ class DDPG_Agent(Agent):
                 self.target_actor_net_update()
             if self.step % self.critic_target_network_update_freq == 0:
                 self.target_critic_net_update()
+            return loss
+        return 0
 
     def target_actor_net_update(self):
         self.target_actor.load_state_dict(self.actor.state_dict())

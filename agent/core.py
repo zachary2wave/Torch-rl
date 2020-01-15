@@ -28,12 +28,11 @@ class Agent(ABC):
         """
         config the logfile 
         """
-        configlist = ["stdout", "log", 'tensorboard']
+        configlist = ["stdout", "log"]
         logger.configure(path, configlist)
-        self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
-        loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
-        self.writer = loggerCEN.writer
-
+        # self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
+        # loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
+        # self.writer = loggerCEN.writer
 
     def imitation_learning(self):
         pass
@@ -89,7 +88,7 @@ class Agent(ABC):
                     self.env.render()
                 'the record part'
                 ep_r += r
-                ep_q += info_forward[a]
+                ep_q += info_forward
                 ep_l += loss
                 if verbose == 1 and self.step > self.learning_starts:
                     logger.record_tabular("steps", self.step)

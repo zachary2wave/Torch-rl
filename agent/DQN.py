@@ -121,7 +121,7 @@ class DQN_Agent(Agent):
             action = self.policy.select_action(Q_value)
         else:
             action = np.argmax(Q_value)
-        return action, Q_value
+        return action, np.max(Q_value)
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
