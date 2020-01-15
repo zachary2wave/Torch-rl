@@ -7,7 +7,7 @@ from torch.optim import Adam
 from torch import nn
 import torch.nn.functional as F
 from common.loss import huber_loss
-from torch.utils.tensorboard import SummaryWriter
+from torch.autograd import Variable
 
 class Dueling_dqn(nn.Module):
     def __init__(self, model, dueling_way):
@@ -36,7 +36,7 @@ class DQN_Agent(Agent):
     def __init__(self, env, model, policy,
                  ## hyper-parameter
                  gamma=0.90, lr=1e-3, batch_size=32, buffer_size=50000, learning_starts=1000,
-                 target_network_update_freq=1000,
+                 target_network_update_freq=500,
                  ## decay
                  decay=False, decay_rate=0.9,
                  ## DDqn && DuelingDQN
@@ -109,6 +109,8 @@ class DQN_Agent(Agent):
         self.replay_buffer = ReplayMemory(buffer_size)
         self.learning = False
         super(DQN_Agent, self).__init__(path)
+        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        self.writer.add_graph(self.Q_net, input_to_model=example_input)
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
@@ -156,7 +158,7 @@ class DQN_Agent(Agent):
         self.target_Q_net.load_state_dict(model["target_Q_net"])
         self.optim.load_state_dict(model["optim"])
 
-    def save_weights(self, filepath, overwrite=False):
+    def save_weights(self, filepath, overwrite=True):
         torch.save({"Q_net": self.Q_net,
                     "target_Q_net": self.target_Q_net,
                     "optim": self.optim

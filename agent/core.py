@@ -4,7 +4,7 @@ import numpy as np
 from common import logger
 from common.logger import CSVOutputFormat
 import torch
-from torch.autograd import Variable
+
 
 class Agent(ABC):
     """
@@ -33,8 +33,7 @@ class Agent(ABC):
         self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
         loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
         self.writer = loggerCEN.writer
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
-        self.writer.add_graph(self.Q_net, input_to_model=example_input)
+
 
     def imitation_learning(self):
         pass
@@ -81,7 +80,7 @@ class Agent(ABC):
                 self.step += 1
                 ep_cycle += 1
                 'the interaction part'
-                a, q = self.forward(s)
+                a, info_forward = self.forward(s)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
                 s = s_
@@ -90,7 +89,7 @@ class Agent(ABC):
                     self.env.render()
                 'the record part'
                 ep_r += r
-                ep_q += q[a]
+                ep_q += info_forward[a]
                 ep_l += loss
                 if verbose == 1 and self.step > self.learning_starts:
                     logger.record_tabular("steps", self.step)
