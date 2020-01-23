@@ -9,7 +9,7 @@ envID = "MountainCar-v0"
 env = gym.make(envID)
 
 nowtime = time.strftime('%y%m%d%H%M',time.localtime())
-path = "savedate" + '/' + envID + "dqn" + nowtime+'/'
+path = "savedate" + '/' + envID + "-dqn-" + nowtime+'/'
 #%%
 
 policy = EpsGreedyQPolicy()

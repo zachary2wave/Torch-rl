@@ -5,29 +5,34 @@ from agent.core import Agent
 from copy import deepcopy
 from torch.optim import Adam
 from torch import nn
-import torch.nn.functional as F
 from common.loss import huber_loss
 from torch.autograd import Variable
 
+class actor_critic(nn.Module):
+    def __init__(self, actor, critic):
+        super(actor_critic, self).__init__()
+        self.actor = actor
+        self.critic = critic
+
+    def forward(self, obs):
+        a = self.actor(obs)
+        input = torch.cat((obs, a), axis=-1)
+        Q = self.critic(input)
+        return Q
+
 class DDPG_Agent(Agent):
-    def __init__(self, env, actor_model, critic_model, policy,
-                 actor_lr=1e-3, critic_lr=1e-3,
+    def __init__(self, env, actor_model, critic_model,
+                 actor_lr=1e-4, critic_lr=1e-4,
                  actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
                  actor_training_freq=1, critic_training_freq=1,
                  ## hyper-parameter
-                 gamma=0.90, batch_size=32, buffer_size=50000, learning_starts=1000,
-                 target_network_update_freq=1000,
+                 gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
                  ## decay
                  decay=False, decay_rate=0.9,
-                 ## prioritized_replay
-                 prioritized_replay=False,
-                 prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
-                 prioritized_replay_eps=1e-6, param_noise=False,
                  ##
                  path=None):
 
         self.env = env
-        self.policy = policy
 
         self.gamma = gamma
         self.batch_size = batch_size
@@ -43,6 +48,8 @@ class DDPG_Agent(Agent):
         self.target_actor = deepcopy(actor_model)
         self.target_critic = deepcopy(critic_model)
 
+        self.actor_critic = actor_critic(self.actor, self.critic)
+
         actor_optim = Adam(self.actor.parameters(), lr=actor_lr)
         critic_optim = Adam(self.critic.parameters(), lr=critic_lr)
         if decay:
@@ -55,16 +62,14 @@ class DDPG_Agent(Agent):
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1, norm_type=2)
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1, norm_type=2)
         super(DDPG_Agent, self).__init__(path)
-        # example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
-        # self.writer.add_graph(self.actor, input_to_model=example_input)
-        # example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]+env.action_space.shape[0]))
-        # self.writer.add_graph(self.critic, input_to_model=example_input)
-
+        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        self.writer.add_graph(self.actor_critic, input_to_model=example_input)
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
+        action = action + torch.randn_like(action)
         Q = self.critic(torch.cat((observation, action),axis=0))
         action = action.data.numpy()
         return action, Q.detach().numpy()
@@ -74,7 +79,6 @@ class DDPG_Agent(Agent):
         if self.step > self.learning_starts and self.learning:
             sample = self.replay_buffer.sample(self.batch_size)
             assert len(sample["s"]) == self.batch_size
-            a = sample["a"].long().unsqueeze(1)
             "update the critic "
             if self.step % self.critic_training_freq == 0:
                 input = torch.cat((sample["s"], sample["a"]), -1)
@@ -91,9 +95,7 @@ class DDPG_Agent(Agent):
                 self.critic_optim.step()
             "training the actor"
             if self.step % self.actor_training_freq == 0:
-                action = self.actor(sample["s"])
-                input = torch.cat((sample["s"], action), -1)
-                Q = self.critic(input)
+                Q = self.actor_critic(sample["s"])
                 Q = torch.mean(Q)
                 self.actor.zero_grad()
                 Q.backward()
@@ -102,6 +104,7 @@ class DDPG_Agent(Agent):
                 self.target_actor_net_update()
             if self.step % self.critic_target_network_update_freq == 0:
                 self.target_critic_net_update()
+            loss = loss.data.numpy()
             return loss
         return 0
 
@@ -113,15 +116,19 @@ class DDPG_Agent(Agent):
 
     def load_weights(self, filepath):
         model = torch.load(filepath)
-        self.Q_net.load_state_dict(model["Q_net"])
-        self.target_Q_net.load_state_dict(model["target_Q_net"])
-        self.optim.load_state_dict(model["optim"])
+        self.actor.load_state_dict(model["actor"])
+        self.critic.load_state_dict(model["critic"])
+        self.target_actor.load_state_dict(model["target_actor"])
+        self.target_critic.load_state_dict(model["target_critic"])
+        self.actor_optim.load_state_dict(model["actor_optim"])
+        self.critic_optim.load_state_dict(model["critic_optim"])
+
 
     def save_weights(self, filepath, overwrite=False):
-        torch.save({"Q_net": self.Q_net,
-                    "target_Q_net": self.target_Q_net,
-                    "optim": self.optim
-                    }, filepath + "DQN.pkl")
+        torch.save({"actor": self.actor, "critic":self.critic,
+                    "target_actor": self.target_actor,"target_critic": self.target_critic,
+                    "actor_optim": self.actor_optim, "critic_optim": self.critic_optim
+                    }, filepath + "DDPG.pkl")
 
 
 
