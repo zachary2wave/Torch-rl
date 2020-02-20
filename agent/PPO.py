@@ -2,11 +2,13 @@ import torch
 from agent.core import Agent
 from common.memory import Sequence_Replay_Memory
 from copy import deepcopy
+from common.distribution import *
+
 
 class PPO_Agent(Agent):
 
     def __init__(self, env, policy_model, value_model,
-                 lr=1e-5,
+                 lr=1e-5, updata_time = 1,
                  ## hyper-parameter
                  gamma=0.90, batch_size=32, buffer_size=50000, learning_starts=1000,
                  ## decay
@@ -21,9 +23,17 @@ class PPO_Agent(Agent):
             else:
                 self.value_model = value_model
 
-
+        self.pdtype = make_pdtype(env.action_space)
 
 
 
 
         super(PPO_Agent,self).__init__(path)
+
+
+    def forward(self, observation):
+
+
+
+
+    def backward(self, sample):

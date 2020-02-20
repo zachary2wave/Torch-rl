@@ -44,7 +44,7 @@ class Agent(ABC):
 
     def test(self, max_step=None, max_ep_cycle=2000, verbose=2, render=False, record_ep_inter=None):
         self.learning = False
-        self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle,render=render,
+        self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
     def interact(self, max_step=50000, max_ep_cycle=2000, render = False,
@@ -80,7 +80,7 @@ class Agent(ABC):
                 ep_cycle += 1
                 'the interaction part'
                 a, info_forward = self.forward(s)
-                print(a)
+                # print(a)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
                 s = s_
