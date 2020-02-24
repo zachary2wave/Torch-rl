@@ -1,8 +1,8 @@
 import torch
-from agent.core import Agent
-from common.memory import Sequence_Replay_Memory
+from Torch_rl.agent.core import Agent
+from Torch_rl.common.memory import Sequence_Replay_Memory
 from copy import deepcopy
-from common.distribution import *
+from Torch_rl.common.distribution import *
 
 
 class PPO_Agent(Agent):

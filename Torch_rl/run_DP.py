@@ -11,6 +11,7 @@ env = gym.make(envID)
 nowtime = time.strftime('%y%m%d%H%M', time.localtime())
 path = "savedate" + '/' + envID + "-DQN-" + nowtime+'/'
 #%%
+
 actor = DenseNet(env.observation_space.shape[0], env.action_space.shape[0], hidden_activate=nn.Tanh())
 critic = DenseNet(env.observation_space.shape[0]+env.action_space.shape[0], 1, hidden_activate=nn.Tanh())
 Agent = DQN_Agent(env, actor, critic, gamma=0.99, path=path)

@@ -1,8 +1,8 @@
 from copy import deepcopy
 from abc import ABC
 import numpy as np
-from common import logger
-from common.logger import CSVOutputFormat
+from Torch_rl.common import logger
+from Torch_rl.common.logger import CSVOutputFormat
 import torch
 
 

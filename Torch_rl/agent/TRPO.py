@@ -1,6 +1,6 @@
 import torch
-from agent.core import Agent
-from common.memory import ReplayMemory
+from Torch_rl.agent.core import Agent
+from Torch_rl.common.memory import ReplayMemory
 
 class TRPO_Agent(Agent):
     def __init__(self, env, actor_model, critic_model,

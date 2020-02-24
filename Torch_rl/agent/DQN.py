@@ -1,12 +1,12 @@
 import torch
 import numpy as np
-from common.memory import ReplayMemory
-from agent.core import Agent
+from Torch_rl.common.memory import ReplayMemory
+from Torch_rl.agent.core import Agent
 from copy import deepcopy
 from torch.optim import Adam
 from torch import nn
 import torch.nn.functional as F
-from common.loss import huber_loss
+from Torch_rl.common.loss import huber_loss
 from torch.autograd import Variable
 
 class Dueling_dqn(nn.Module):

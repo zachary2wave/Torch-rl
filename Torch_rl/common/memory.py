@@ -75,3 +75,37 @@ class Sequence_Replay_Memory(Memory):
                 temp = np.array(self.memory[key][index], dtype=np.float32)
                 sample[key].append(torch.from_numpy(temp))
         return sample
+
+class ReplayMemory_HIRO(Memory):
+    def __init__(self, capacity):
+        super(ReplayMemory, self).__init__(capacity)
+        self.memory = {"s": [],"g":[], "a": [], "s_": [], "r": [], "tr": []}
+    def push(self, sample):
+        """Saves a transition."""
+        for key in self.memory.keys():
+            self.memory[key].append(sample[key])
+        if len(self.memory["s"]) > self.capacity:
+            for key in self.memory.keys():
+                del self.memory[key][0]
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        sample_index = random.sample(range(len(self.memory["s"])), batch_size)
+        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
+        for key in sample.keys():
+            for index in sample_index:
+                if key == "s":
+                    temp = np.array(self.memory["s"][index]+self.memory["g"][index], dtype=np.float32)
+                    sample[key].append(torch.from_numpy(temp))
+                else:
+                    temp = np.array(self.memory[key][index], dtype=np.float32)
+                    sample[key].append(torch.from_numpy(temp))
+        return sample
+    def H_sample(self, batch_size):
+        sample_index = random.sample(range(len(self.memory["s"])), batch_size)
+        sample = {"s": [], "g": [], "s_": [], "r": [], "tr": []}
+        for key in sample.keys():
+            for index in sample_index:
+                temp = np.array(self.memory[key][index], dtype=np.float32)
+                sample[key].append(torch.from_numpy(temp))
+        return sample
