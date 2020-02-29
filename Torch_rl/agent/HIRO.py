@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from Torch_rl.common.loss import huber_loss
 from torch.autograd import Variable
 import gym.spaces as Space
-from common.Policy_for_DQN import BoltzmannQPolicy
+from Torch_rl.common.Policy_for_DQN import BoltzmannQPolicy
 
 class HIRO_Agent(Agent):
     def __init__(self, env,

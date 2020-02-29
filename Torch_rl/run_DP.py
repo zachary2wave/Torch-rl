@@ -1,9 +1,9 @@
 import gym
 import time
-from agent.DQN import DQN_Agent
-from model.Network import DenseNet
+from Torch_rl.agent.DQN import DQN_Agent
+from Torch_rl.model.Network import DenseNet
 from torch import nn
-from common.Policy_for_DQN import BoltzmannQPolicy
+from Torch_rl.common.Policy_for_DQN import BoltzmannQPolicy
 #%%
 envID = 'D_place_action-v0'
 env = gym.make(envID)

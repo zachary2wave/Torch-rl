@@ -64,6 +64,10 @@ class DDPG_Agent(Agent):
         super(DDPG_Agent, self).__init__(path)
         example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
         self.writer.add_graph(self.actor_critic, input_to_model=example_input)
+        self.forward_step_show_list = []
+        self.backward_step_show_list =[]
+        self.forward_ep_show_list = []
+        self.backward_ep_show_list = []
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
@@ -72,7 +76,7 @@ class DDPG_Agent(Agent):
         action = action + torch.randn_like(action)
         Q = self.critic(torch.cat((observation, action),axis=0))
         action = action.data.numpy()
-        return action, Q.detach().numpy()
+        return action, Q.detach().numpy(),{}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
@@ -105,8 +109,8 @@ class DDPG_Agent(Agent):
             if self.step % self.critic_target_network_update_freq == 0:
                 self.target_critic_net_update()
             loss = loss.data.numpy()
-            return loss
-        return 0
+            return loss, {}
+        return 0, {}
 
     def target_actor_net_update(self):
         self.target_actor.load_state_dict(self.actor.state_dict())

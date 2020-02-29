@@ -34,6 +34,7 @@ class Agent(ABC):
         loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
         self.writer = loggerCEN.writer
 
+
     def imitation_learning(self):
         pass
 
@@ -74,35 +75,49 @@ class Agent(ABC):
             ep_r, ep_q, ep_l = 0, 0, 0
             'reset the RL flag'
             ep_cycle, done = 0, 0
+            ep_show={}
+            if not self.backward_ep_show_list:
+                for key in self.backward_ep_show_list:
+                    ep_show[key]=0
             self.episode += 1
             while done == 0 and ep_cycle < max_ep_cycle:
                 self.step += 1
                 ep_cycle += 1
                 'the interaction part'
-                a, info_forward = self.forward(s)
+                a, Q, info_forward = self.forward(s)
                 # print(a)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
                 s = s_
-                loss = self.backward(sample)
+                loss, info_backward = self.backward(sample)
                 if render:
                     self.env.render()
                 'the record part'
-                ep_r += r
-                ep_q += info_forward
-                ep_l += loss
+
                 if verbose == 1 and self.step > self.learning_starts:
                     logger.record_tabular("steps", self.step)
                     logger.record_tabular("episodes", self.episode)
                     logger.record_tabular("loss", loss)
                     logger.record_tabular("reward", r)
-                    logger.record_tabular("Q_value", round(q[a].date.numpy()))
+                    logger.record_tabular("Q", Q)
+                    if not self.forward_step_show_list:
+                        for key in self.forward_step_show_list:
+                            logger.record_tabular(key, info_forward[key])
+                    if not self.backward_step_show_list:
+                        for key in self.backward_step_show_list:
+                            logger.record_tabular(key, info_backward[key])
                     logger.dump_tabular()
                 if record_ep_inter is not None:
                     if self.episode % record_ep_inter == 0:
                         kvs = {"s": s, "a": a, "s_": s_, "r": r,
                                "tr": done, "ep": self.episode, "step": self.step, "ep_step": ep_cycle}
                         self.csvwritter.writekvs(kvs)
+                ep_r += r
+                ep_q += Q
+                ep_l += loss
+                if not self.backward_ep_show_list:
+                    for key in self.backward_ep_show_list:
+                        ep_show[key] += info_backward[key]
                 if done:
                     ep_reward.append(ep_r)
                     ep_Q_value.append(ep_q)
@@ -113,9 +128,16 @@ class Agent(ABC):
                         logger.record_tabular("episodes", self.episode)
                         logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
                         logger.record_tabular("episode_reward", ep_reward[-1])
-                        logger.record_tabular("episode_loss", ep_l)
-                        logger.record_tabular("episode_Q_value", ep_q)
+                        logger.record_tabular("episode_reward_per_step", ep_reward[-1]/ep_cycle)
+                        logger.record_tabular("episode_loss_per_step", ep_l/ep_cycle)
+                        logger.record_tabular("episode_Q_value_per_step", ep_q/ep_cycle)
                         logger.record_tabular("step_used", ep_cycle)
+                        if not self.forward_ep_show_list:
+                            for key in self.forward_ep_show_list:
+                                logger.record_tabular(key, info_forward[key])
+                        if not self.backward_ep_show_list:
+                            for key in self.backward_ep_show_list:
+                                logger.record_tabular(key, ep_show[key])
                         logger.dump_tabular()
 
 

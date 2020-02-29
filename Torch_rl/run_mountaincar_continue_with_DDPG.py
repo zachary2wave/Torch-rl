@@ -1,9 +1,8 @@
 import gym
 import time
-from agent.ddpg import DDPG_Agent
-from model.Network import DenseNet
+from Torch_rl.agent.DDPG import DDPG_Agent
+from Torch_rl.model.Network import DenseNet
 from torch import nn
-from common.Policy_for_DQN import BoltzmannQPolicy
 #%%
 envID = "Pendulum-v0"
 env = gym.make(envID)

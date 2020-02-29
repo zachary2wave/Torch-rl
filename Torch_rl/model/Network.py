@@ -84,7 +84,7 @@ class DenseNet(nn.Module):
             self.layer.append(nn.Sequential(OrderedDict(layer)))
         output_layerlayer = [("output_layer",nn.Linear(first_placeholder[-1], output_size, bias=True))]
         if output_activate is not None:
-            output_layerlayer.append(output_activate)
+            output_layerlayer.append(("output_activation",output_activate))
         self.layer.append(nn.Sequential(OrderedDict(output_layerlayer)))
         self.linears = nn.ModuleList(self.layer)
 
@@ -103,28 +103,34 @@ class LSTM_Dense(nn.Module):
                        hidden_activate=nn.ReLU(), output_activate=None,
                        BatchNorm = False):
         super(LSTM_Dense, self).__init__()
+        self.lstm_unit = lstm_unit
+        self.hidden_activate = nn.ReLU()
+        self.Dense = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
+                              hidden_activate=hidden_activate, output_activate=output_activate, BatchNorm=BatchNorm)
 
-        self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
-                               hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
-
-        self._layer_num = [input_size]+[lstm_unit]*lstm_layer+dense_layer+output_size
+        self._layer_num = [input_size] + [lstm_unit] * lstm_layer + dense_layer + [output_size]
         self.LSTM = nn.LSTM(input_size=input_size,
-                            output_size=lstm_unit,
+                            hidden_size=lstm_unit,
                             num_layers=lstm_layer,
                             batch_first=True)
+
+    def init_H_C(self):
+        return (Variable(torch.zeros(1, 1, self.lstm_unit)),
+                Variable(torch.zeros(1, 1, self.lstm_unit)))
 
     def forward(self, x, h_state):
         x, h_state = self.LSTM(x, h_state)
-        for layer in self.linears:
-            x = layer(x)
+        x = self.hidden_activate(x)
+        x = self.Dense(x)
         return x
 
 
-class LSTM_Dense(nn.Module):
-    def __init__(self, input_size, output_size, lstm_unit=64, lstm_layer=1, dense_layer=[64, 64],
-                       hidden_activate=nn.ReLU(), output_activate=None,
-                       BatchNorm = False):
-        super(LSTM_Dense, self).__init__()
+class CNN_2D_Dense(nn.Module):
+    def __init__(self, input_size, output_size, kernal_size=[(5,7,7),(10,5,5),(15,3,3)],
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros',
+                 dense_layer = [64, 64], hidden_activate=nn.ReLU(), output_activate=None,
+                 BatchNorm = False):
+        super(CNN_2D_Dense, self).__init__()
 
         self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
                                hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
@@ -134,7 +140,6 @@ class LSTM_Dense(nn.Module):
                             output_size=lstm_unit,
                             num_layers=lstm_layer,
                             batch_first=True)
-
     def forward(self, x, h_state):
         x, h_state = self.LSTM(x, h_state)
         for layer in self.linears:

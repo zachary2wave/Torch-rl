@@ -7,10 +7,12 @@ from abc import ABC
 
 class Memory(ABC):
 
-    def __init__(self, capacity):
+    def __init__(self, capacity, other_record=None):
         self.capacity = capacity
-        self.memory = {"s":[],"a":[],"s_":[],"r":[],"tr":[]}
-        keylist = self.memory.keys()
+        self.memory = {"s": [], "a": [], "s_" : [], "r": [], "tr": []}
+        if other_record is not None:
+            for key in other_record:
+                self.memory[key] = []
         self.position = 0
 
     def push(self, sample):
@@ -31,7 +33,6 @@ class ReplayMemory(Memory):
             for key in self.memory.keys():
                 del self.memory[key][0]
         self.position = (self.position + 1) % self.capacity
-
     def sample(self, batch_size):
         sample_index = random.sample(range(len(self.memory["s"])), batch_size)
         sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
@@ -42,39 +43,32 @@ class ReplayMemory(Memory):
             sample[key] = torch.from_numpy(sample[key])
         return sample
 
-    def extract_last_ep(self, during):
-        sample_index = np.arange(-during,-1)
-        sample = dict()
+    def recent_sequence_sample(self, batch):
+        ending_flag = [index for (index, value) in enumerate(self.memory["tr"]) if value == 1]
+        sample_batch = []
+        for time in range(batch):
+            sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
+            start_ = ending_flag[-6+time]+1
+            end_ = ending_flag[-5+time]
+            for key in self.memory.keys():
+                sample[key] = self.memory[key][start_:end_]
+                sample[key] = np.array(sample[key], dtype=np.float32)
+                sample[key] = torch.from_numpy(sample[key])
+            sample_batch.append(sample)
+        return sample_batch
+
+    def recent_step_sample(self, batch_size):
+        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
         for key in self.memory.keys():
-            sample[key] = self.memory[key][sample_index]
+            sample[key] = self.memory[key][-batch_size:]
+            sample[key] = np.array(sample[key], dtype=np.float32)
+            sample[key] = torch.from_numpy(sample[key])
         return sample
 
     def __len__(self):
         return len(self.memory)
 
 
-class Sequence_Replay_Memory(Memory):
-    def __init__(self, capacity):
-        super(ReplayMemory, self).__init__(capacity)
-        for key in self.memory.keys():
-            self.memory[key].append([])
-
-    def push(self, sample):
-        for key in self.memory.keys():
-            self.memory[key][-1].append(sample[key])
-        if sample["tr"]:
-            for key in self.memory.keys():
-                self.memory[key].append([])
-                del self.memory[key][0]
-
-    def sample(self, batch_size):
-        sample_index = random.sample(range(len(self.memory["s"])), batch_size)
-        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
-        for key in self.memory.keys():
-            for index in sample_index:
-                temp = np.array(self.memory[key][index], dtype=np.float32)
-                sample[key].append(torch.from_numpy(temp))
-        return sample
 
 class ReplayMemory_HIRO(Memory):
     def __init__(self, capacity):

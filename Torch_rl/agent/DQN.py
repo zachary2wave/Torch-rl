@@ -111,6 +111,10 @@ class DQN_Agent(Agent):
         super(DQN_Agent, self).__init__(path)
         example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
         self.writer.add_graph(self.Q_net, input_to_model=example_input)
+        self.forward_step_show_list = []
+        self.backward_step_show_list =[]
+        self.forward_ep_show_list = []
+        self.backward_ep_show_list = []
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
@@ -121,7 +125,7 @@ class DQN_Agent(Agent):
             action = self.policy.select_action(Q_value)
         else:
             action = np.argmax(Q_value)
-        return action, np.max(Q_value)
+        return action, np.max(Q_value), {}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
@@ -146,8 +150,8 @@ class DQN_Agent(Agent):
             if self.step % self.target_network_update_freq == 0:
                 self.target_net_update()
             loss = loss.data.numpy()
-            return loss
-        return 0
+            return loss, {}
+        return 0, {}
 
     def target_net_update(self):
         self.target_Q_net.load_state_dict(self.Q_net.state_dict())
