@@ -8,7 +8,7 @@ from torch.autograd import Variable
 
 class PPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
-                 lr=1e-5, updata_time = 1, ent_coef=0.01, vf_coef=0.5,
+                 lr=1e-5, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
                  gamma=0.90, lam=0.95, cliprange=0.2,
                  buffer_size=50000, learning_starts=1000, run_step = 2048,
@@ -61,9 +61,6 @@ class PPO_Agent(Agent):
         self.backward_step_show_list = ["pg_loss", "entropy", "vf_loss"]
         self.forward_ep_show_list = []
         self.backward_ep_show_list = ["pg_loss", "entropy", "vf_loss"]
-
-        " the flag used in training "
-        self.count_ep = 0
 
 
     def forward(self, observation):
@@ -130,3 +127,16 @@ class PPO_Agent(Agent):
             self.cliprange = torch.sum(torch.gt(torch.abs(ratio - 1.0), self.cliprange))
             return loss, {"pg_loss": pg_loss, "entropy": entropy, "vf_loss": vf_loss}
         return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
+
+    def load_weights(self, filepath):
+        model = torch.load(filepath+"ppo.pkl")
+        self.policy_model.load_state_dict(model["policy_model"])
+        self.value_model.load_state_dict(model["value_model"])
+        self.policy_model_optim.load_state_dict(model["policy_model_optim"])
+        self.value_model_optim.load_state_dict(model["value_model_optim"])
+
+
+    def save_weights(self, filepath, overwrite=False):
+        torch.save({"actor": self.policy_model, "critic":self.value_model,
+                    "policy_model_optim": self.policy_model_optim, "value_model_optim": self.value_model_optim,
+                    }, filepath + "PPO.pkl")

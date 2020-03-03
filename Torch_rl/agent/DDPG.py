@@ -22,13 +22,13 @@ class actor_critic(nn.Module):
 
 class DDPG_Agent(Agent):
     def __init__(self, env, actor_model, critic_model,
-                 actor_lr=1e-4, critic_lr=1e-4,
+                 actor_lr=1e-4, critic_lr=1e-3,
                  actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
                  actor_training_freq=1, critic_training_freq=1,
                  ## hyper-parameter
                  gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
-                 ## decay
-                 decay=False, decay_rate=0.9,
+                 ## lr_decay
+                 decay=False, decay_rate=0.9, critic_l2_reg=1e-2, clip_norm =None,
                  ##
                  path=None):
 
@@ -51,7 +51,7 @@ class DDPG_Agent(Agent):
         self.actor_critic = actor_critic(self.actor, self.critic)
 
         actor_optim = Adam(self.actor.parameters(), lr=actor_lr)
-        critic_optim = Adam(self.critic.parameters(), lr=critic_lr)
+        critic_optim = Adam(self.critic.parameters(), lr=critic_lr, weight_decay=critic_l2_reg)
         if decay:
             self.actor_optim = torch.optim.lr_scheduler.ExponentialLR(actor_optim, decay_rate, last_epoch=-1)
             self.critic_optim = torch.optim.lr_scheduler.ExponentialLR(critic_optim, decay_rate, last_epoch=-1)
@@ -73,10 +73,10 @@ class DDPG_Agent(Agent):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
-        action = action + torch.randn_like(action)
-        Q = self.critic(torch.cat((observation, action),axis=0))
+        action = torch.normal(action, 1)
+        Q = self.critic(torch.cat((observation, action),axis=0)).detach().numpy()
         action = action.data.numpy()
-        return action, Q.detach().numpy(),{}
+        return action, Q, {}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
@@ -94,14 +94,15 @@ class DDPG_Agent(Agent):
                 Q = Q.squeeze(1)
                 expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
                 loss = torch.mean(huber_loss(expected_q_values - Q))
-                self.critic.zero_grad()
+                self.critic_optim.zero_grad()
                 loss.backward()
                 self.critic_optim.step()
             "training the actor"
             if self.step % self.actor_training_freq == 0:
-                Q = self.actor_critic(sample["s"])
-                Q = torch.mean(Q)
-                self.actor.zero_grad()
+                # Q = self.critic(torch.cat((sample["s"], self.actor(sample["s"])), -1))
+                Q = self.actor_critic.forward(sample["s"])
+                Q = -torch.mean(Q)
+                self.actor_optim.zero_grad()
                 Q.backward()
                 self.actor_optim.step()
             if self.step % self.actor_target_network_update_freq == 0:

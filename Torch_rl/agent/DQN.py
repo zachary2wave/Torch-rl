@@ -143,7 +143,7 @@ class DQN_Agent(Agent):
             Q = Q.squeeze(1)
             expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
             loss = torch.mean(huber_loss(expected_q_values-Q))
-            self.Q_net.zero_grad()
+            self.optim.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.Q_net.parameters(), 1, norm_type=2)
             self.optim.step()

@@ -134,7 +134,7 @@ class TD3_Agent(Agent):
         self.target_critic.load_state_dict(self.critic.state_dict())
 
     def load_weights(self, filepath):
-        model = torch.load(filepath)
+        model = torch.load(filepath + "TD3.pkl")
         self.actor.load_state_dict(model["actor"])
         self.critic.load_state_dict(model["critic"])
         self.target_actor.load_state_dict(model["target_actor"])
@@ -147,7 +147,7 @@ class TD3_Agent(Agent):
         torch.save({"actor": self.actor, "critic":self.critic,
                     "target_actor": self.target_actor,"target_critic": self.target_critic,
                     "actor_optim": self.actor_optim, "critic_optim": self.critic_optim
-                    }, filepath + "DDPG.pkl")
+                    }, filepath + "TD3.pkl")
 
 
 

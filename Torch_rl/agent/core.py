@@ -40,11 +40,16 @@ class Agent(ABC):
 
     def train(self, max_step=None, max_ep_cycle=2000, verbose=2, render=False, record_ep_inter=None):
         self.learning = True
+        print("the train phase ........")
         self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
     def test(self, max_step=None, max_ep_cycle=2000, verbose=2, render=False, record_ep_inter=None):
         self.learning = False
+        self.learning_starts = 0
+        self.step = 0
+        self.episode = 0
+        print("the test phase ........")
         self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
@@ -139,7 +144,6 @@ class Agent(ABC):
                             for key in self.backward_ep_show_list:
                                 logger.record_tabular(key, ep_show[key])
                         logger.dump_tabular()
-
 
     def forward(self, observation):
         """Takes the an observation from the environment and returns the action to be taken next.

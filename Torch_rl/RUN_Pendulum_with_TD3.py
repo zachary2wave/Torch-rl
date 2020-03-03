@@ -4,7 +4,7 @@ from Torch_rl.agent.DDPG import DDPG_Agent
 from Torch_rl.model.Network import DenseNet
 from torch import nn
 #%%
-envID = "Pendulum-v0"
+envID = "MountainCarContinuous-v0"
 env = gym.make(envID)
 
 nowtime = time.strftime('%y%m%d%H%M', time.localtime())
@@ -14,7 +14,7 @@ actor = DenseNet(env.observation_space.shape[0], env.action_space.shape[0], hidd
 critic = DenseNet(env.observation_space.shape[0]+env.action_space.shape[0], 1, hidden_activate=nn.Tanh())
 Agent = DDPG_Agent(env, actor, critic, gamma=0.99, path=path)
 
-Agent.train(max_step=10000, render=True, verbose=2)
+Agent.train(max_step=10000, render=False, verbose=2)
 Agent.test(max_step=10000, render=True, verbose=2)
 
 

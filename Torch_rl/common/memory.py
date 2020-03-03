@@ -23,7 +23,7 @@ class Memory(ABC):
 
 class ReplayMemory(Memory):
     def __init__(self, capacity):
-        super(ReplayMemory, self).__init__(capacity)
+        super(ReplayMemory, self).__init__(capacity, other_record=None)
 
     def push(self, sample):
         """Saves a transition."""
@@ -71,8 +71,8 @@ class ReplayMemory(Memory):
 
 
 class ReplayMemory_HIRO(Memory):
-    def __init__(self, capacity):
-        super(ReplayMemory, self).__init__(capacity)
+    def __init__(self, capacity, other_record=None):
+        super(ReplayMemory, self).__init__(capacity, other_record)
         self.memory = {"s": [],"g":[], "a": [], "s_": [], "r": [], "tr": []}
     def push(self, sample):
         """Saves a transition."""
