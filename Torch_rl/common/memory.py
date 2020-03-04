@@ -22,8 +22,8 @@ class Memory(ABC):
         raise NotImplementedError()
 
 class ReplayMemory(Memory):
-    def __init__(self, capacity):
-        super(ReplayMemory, self).__init__(capacity, other_record=None)
+    def __init__(self, capacity, other_record=None):
+        super(ReplayMemory, self).__init__(capacity, other_record=other_record)
 
     def push(self, sample):
         """Saves a transition."""
@@ -67,7 +67,6 @@ class ReplayMemory(Memory):
 
     def __len__(self):
         return len(self.memory)
-
 
 
 class ReplayMemory_HIRO(Memory):

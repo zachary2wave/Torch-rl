@@ -49,7 +49,7 @@ class DiagGaussianPd(Pd):
     def build(self, actor):
         self.actor = actor
         layer_infor = []
-        for name, param in self.named_parameters():
+        for name, param in self.actor.named_parameters():
             if "weight" in name:
                 layer_infor.append(list(param.size()))
         self.output_layer = layer_infor[-1][0]
@@ -59,15 +59,14 @@ class DiagGaussianPd(Pd):
             self.mean = output
             self.logstd = torch.ones_like(output)
         elif self.output_layer == self.shape*2:
-            self.mean = output[:self.shape]
-            self.logstd = output[self.shape:]
+            self.mean = torch.index_select(output, -1, torch.arange(0, self.shape))
+            self.logstd = torch.index_select(output, -1, torch.arange(self.shape, self.shape*2))
         self.std = torch.exp(self.logstd)
         return torch.normal(self.mean, self.std)
 
     def neglogp(self, x):
-        return 0.5 * torch.sum(torch.pow((x - self.mean) / self.std),2, dim =-1) \
-        + torch.tensor(0.5 * np.log(2.0 * np.pi) * list(x.size())) \
-        + torch.sum(self.std, dim =-1)
+        return 0.5 * torch.sum(torch.pow((x - self.mean) / self.std, 2)) \
+        + torch.tensor(0.5 * np.log(2.0 * np.pi)) + torch.sum(self.std)
 
     def kl(self, other):
         assert isinstance(other, DiagGaussianPd)
