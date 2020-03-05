@@ -28,7 +28,7 @@ class Agent(ABC):
         """
         config the logfile 
         """
-        configlist = ["stdout", "log", 'tensorboard']
+        configlist = ["stdout", "log", 'tensorboard', "csv"]
         if path is None:
             path = "./"
         logger.configure(path, configlist)
@@ -83,9 +83,9 @@ class Agent(ABC):
             'reset the RL flag'
             ep_cycle, done = 0, 0
             ep_show={}
-            if not self.backward_ep_show_list:
+            if self.backward_ep_show_list:
                 for key in self.backward_ep_show_list:
-                    ep_show[key]=0
+                    ep_show[key] = 0
             self.episode += 1
             while done == 0 and ep_cycle < max_ep_cycle:
                 self.step += 1
@@ -107,10 +107,10 @@ class Agent(ABC):
                     logger.record_tabular("loss", loss)
                     logger.record_tabular("reward", r)
                     logger.record_tabular("Q", Q)
-                    if not self.forward_step_show_list:
+                    if self.forward_step_show_list:
                         for key in self.forward_step_show_list:
                             logger.record_tabular(key, info_forward[key])
-                    if not self.backward_step_show_list:
+                    if self.backward_step_show_list:
                         for key in self.backward_step_show_list:
                             logger.record_tabular(key, info_backward[key])
                     logger.dump_tabular()
@@ -122,7 +122,7 @@ class Agent(ABC):
                 ep_r += r
                 ep_q += Q
                 ep_l += loss
-                if not self.backward_ep_show_list:
+                if self.backward_ep_show_list:
                     for key in self.backward_ep_show_list:
                         ep_show[key] += info_backward[key]
                 if done:
@@ -133,16 +133,16 @@ class Agent(ABC):
                     if verbose == 2 and self.step > self.learning_starts:
                         logger.record_tabular("steps", self.step)
                         logger.record_tabular("episodes", self.episode)
-                        logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
+                        # logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
                         logger.record_tabular("episode_reward", ep_reward[-1])
-                        logger.record_tabular("episode_reward_per_step", ep_reward[-1]/ep_cycle)
+                        # logger.record_tabular("episode_reward_per_step", ep_reward[-1]/ep_cycle)
                         logger.record_tabular("episode_loss_per_step", ep_l/ep_cycle)
-                        logger.record_tabular("episode_Q_value_per_step", ep_q/ep_cycle)
-                        logger.record_tabular("step_used", ep_cycle)
-                        if not self.forward_ep_show_list:
+                        # logger.record_tabular("episode_Q_value_per_step", ep_q/ep_cycle)
+                        # logger.record_tabular("step_used", ep_cycle)
+                        if self.forward_ep_show_list:
                             for key in self.forward_ep_show_list:
                                 logger.record_tabular(key, info_forward[key])
-                        if not self.backward_ep_show_list:
+                        if self.backward_ep_show_list:
                             for key in self.backward_ep_show_list:
                                 logger.record_tabular(key, ep_show[key])
                         logger.dump_tabular()

@@ -8,15 +8,6 @@ from torch.optim import Adam
 from torch.autograd import Variable
 from gym import spaces
 
-
-import csv
-def csv_record(data,path):
-    with open(path+"record.csv", "a+") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(data)
-
-
-
 class graph_model(torch.nn.Module):
     def __init__(self, policy, value):
         super(graph_model, self).__init__()
@@ -28,12 +19,15 @@ class graph_model(torch.nn.Module):
         Q = self.value(obs)
         return output, Q
 
+
+
+
 class PPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
-                 lr=1e-4, ent_coef=0.01, vf_coef=0.5,
+                 lr=1e-3, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
-                 gamma=0.90, lam=0.95, cliprange=0.2,
-                 buffer_size=50000, learning_starts=1000, running_step=2000, batch_training_round=20,
+                 gamma=0.99, lam=0.95, cliprange=0.2,
+                 buffer_size=50000, learning_starts=1000, running_step="synchronization", batch_training_round=20,
                  value_regular=0.01,
                  ## decay
                  decay=False, decay_rate=0.9,
@@ -70,7 +64,7 @@ class PPO_Agent(Agent):
 
         self.dist = self.make_pdtype(env.action_space)
 
-        graph_model_optim = Adam(self.graph_model.parameters(), lr=lr, weight_decay=0.01)
+        graph_model_optim = Adam(self.graph_model.parameters(), lr=lr)
         if decay:
             self.graph_model_optim = torch.optim.lr_scheduler.ExponentialLR(graph_model_optim, decay_rate,
                                                                              last_epoch=-1)
@@ -90,6 +84,7 @@ class PPO_Agent(Agent):
         self.training_round = 0
         self.running_step = 0
         self.record_sample = None
+        self.training_step = 0
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
@@ -114,9 +109,12 @@ class PPO_Agent(Agent):
         """"""""""""""
         "training part"
         """"""""""""""
+        "1 training start flag"
+        "2 have enough sample "
+        "3 the training have finished"
         if self.step > self.learning_starts and\
            self.running_step % self.run_step == 0 and\
-           self.training_round == 0 :
+           self.training_round == 0 and self.training_step == 0:
             " sample advantage generate "
             sample = self.replay_buffer.recent_step_sample(self.running_step)
             sample["advs"] = torch.zeros((self.running_step, 1), dtype=torch.float32)
@@ -129,24 +127,29 @@ class PPO_Agent(Agent):
                 sample["advs"][t] = lastgaelam
             sample["value"] = sample["advs"]+sample["value"]
 
-            # adv = sample["advs"]   # Normalize the advantages
-            # adv = (adv - torch.mean(adv))/(torch.std(adv)+1e-8)
-            # sample["advs"] = adv
+            adv = sample["advs"]   # Normalize the advantages
+            adv = (adv - torch.mean(adv))/(torch.std(adv)+1e-8)
+            sample["advs"] = adv
             self.record_sample = sample
             print("the runner have sampled "+str(self.running_step)+" data")
             self.running_step = 0
+            self.training_step = 0
 
         "1 need the sample "
         "2 training start flag"
         "3 training round count"
-        "4 training at the end of each ep to get the information"
         if self.record_sample is not None and \
            self.step > self.learning_starts and \
-           self.training_round < self.batch_training_round and\
-           sample_["tr"]==1:
+           self.training_round < self.batch_training_round:
+            training_s = self.record_sample["s"][self.training_step]
+            training_a = self.record_sample["a"][self.training_step]
+            training_r = self.record_sample["r"][self.training_step]
+            training_value = self.record_sample["value"][self.training_step]
+            training_neglogp = self.record_sample["neglogp"][self.training_step]
+            training_advs = self.record_sample["advs"][self.training_step]
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-            outcome, value_now = self.graph_model.forward(self.record_sample["s"])
+            outcome, value_now = self.graph_model.forward(training_s)
             if isinstance(self.env.action_space, spaces.Box):
                 mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
                 std = torch.index_select(outcome, -1,
@@ -155,40 +158,44 @@ class PPO_Agent(Agent):
             else:
                 self.pd = self.dist(outcome)
 
-            neg_log_pac = - self.pd.log_prob(self.record_sample["a"])
-            entropy = self.pd.entropy().mean()  # Entropy is used to improve exploration by limiting the premature convergence to suboptimal graph.
+            neg_log_pac = - self.pd.log_prob(training_a)
+            entropy = self.pd.entropy().mean()  # Entropy is used to improve exploration by limiting the premature convergence to suboptimal graph
 
-            value_clip = self.record_sample["value"] + torch.clamp(self.record_sample["value"] - value_now, min=-self.cliprange, max = self.cliprange)
+            value_clip = training_value + torch.clamp(training_value - value_now, min=-self.cliprange, max = self.cliprange)
 
-            vf_loss1 = self.loss_cal(value_now, self.record_sample["r"])  # Unclipped loss
+            vf_loss1 = self.loss_cal(value_now, training_r)  # Unclipped loss
             # Clipped value
-            vf_loss2 = self.loss_cal(value_clip, self.record_sample["r"])
-            vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
-            vf_loss = vf_loss1
+            vf_loss2 = self.loss_cal(value_clip, training_r)
+            vf_loss = .5 * torch.max(vf_loss1, vf_loss2).mean()
 
-            ratio = torch.exp(self.record_sample["neglogp"]-neg_log_pac)
-            # adv = self.record_sample["advs"]
-            pg_loss1 = -self.record_sample["advs"] * ratio
-            pg_loss2 = -self.record_sample["advs"] * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
+            ratio = torch.exp(training_neglogp-neg_log_pac)
+            pg_loss1 = -training_advs * ratio
+            pg_loss2 = -training_advs * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
             pg_loss = .5 * torch.max(pg_loss1, pg_loss2).mean()
 
             loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+
+            # print(value_now.detach().mean().numpy(), ratio.detach().mean().numpy())
 
             self.graph_model_optim.zero_grad()
             loss.backward(retain_graph=True)
             self.graph_model_optim.step()
 
+
             # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
             # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
-            self.training_round += 1
-            return loss.data.numpy(), {"pg_loss": pg_loss.data.numpy(),
-                                       "entropy": entropy.data.numpy(),
-                                       "vf_loss": vf_loss.data.numpy()}
+            self.training_step += 1
+            if self.training_step == self.record_sample["s"].size()[0]:
+                self.training_round += 1
+                self.training_step = 0
+            return loss.data.numpy(), {"pg_loss": pg_loss.detach().numpy(),
+                                       "entropy": entropy.detach().numpy(),
+                                       "vf_loss": vf_loss.detach().numpy()}
         if self.training_round == self.batch_training_round:
             print("this round have training finished")
             self.run_graph_model.load_state_dict(self.graph_model.state_dict())
             self.training_round = 0
-            self.record_sample = None
+
 
         return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
 
