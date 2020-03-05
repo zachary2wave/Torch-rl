@@ -133,12 +133,12 @@ class Agent(ABC):
                     if verbose == 2 and self.step > self.learning_starts:
                         logger.record_tabular("steps", self.step)
                         logger.record_tabular("episodes", self.episode)
-                        # logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
+                        logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
                         logger.record_tabular("episode_reward", ep_reward[-1])
-                        # logger.record_tabular("episode_reward_per_step", ep_reward[-1]/ep_cycle)
+                        logger.record_tabular("episode_reward_per_step", ep_reward[-1]/ep_cycle)
                         logger.record_tabular("episode_loss_per_step", ep_l/ep_cycle)
-                        # logger.record_tabular("episode_Q_value_per_step", ep_q/ep_cycle)
-                        # logger.record_tabular("step_used", ep_cycle)
+                        logger.record_tabular("episode_Q_value_per_step", ep_q/ep_cycle)
+                        logger.record_tabular("step_used", ep_cycle)
                         if self.forward_ep_show_list:
                             for key in self.forward_ep_show_list:
                                 logger.record_tabular(key, info_forward[key])

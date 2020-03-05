@@ -41,7 +41,7 @@ class TD3_Agent(Agent):
                  ## hyper-parameter
                  gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
                  ## decay
-                 decay=False, decay_rate=0.9,
+                 decay=False, decay_rate=0.9, l2_regulization=0.01,
                  ##
                  path=None):
 
@@ -64,7 +64,7 @@ class TD3_Agent(Agent):
         self.target_critic = deepcopy(self.critic)
 
         actor_optim = Adam(self.actor.parameters(), lr=actor_lr)
-        critic_optim = Adam(self.critic.parameters(), lr=critic_lr)
+        critic_optim = Adam(self.critic.parameters(), lr=critic_lr, weight_decay=l2_regulization)
         if decay:
             self.actor_optim = torch.optim.lr_scheduler.ExponentialLR(actor_optim, decay_rate, last_epoch=-1)
             self.critic_optim = torch.optim.lr_scheduler.ExponentialLR(critic_optim, decay_rate, last_epoch=-1)
@@ -89,9 +89,9 @@ class TD3_Agent(Agent):
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
         action = action + torch.randn_like(action)
-        Q = self.critic_q1(torch.cat((observation, action),axis=0))
+        Q, _ = self.critic(torch.cat((observation, action),axis=0))
         action = action.data.numpy()
-        return action, Q.detach().numpy(),{}
+        return action, Q.detach().numpy(), {}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
