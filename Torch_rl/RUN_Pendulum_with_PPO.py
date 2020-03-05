@@ -9,9 +9,9 @@ envID ="Pendulum-v0"
 env = gym.make(envID)
 
 nowtime = time.strftime('%y%m%d%H%M',time.localtime())
-path = "savedate" + '/' + envID + "dqn" + nowtime+'/'
+path = "savedate" + '/' + envID + "ppo" + nowtime+'/'
 #%%
-policy_model = DenseNet(env.observation_space.shape[0], env.action_space.shape[0]*2,
+policy_model = DenseNet(env.observation_space.shape[0], env.action_space.shape[0],
                  hidden_activate=nn.ReLU(), hidden_layer=[64, 64])
 value_model = DenseNet(env.observation_space.shape[0], 1,
                   hidden_activate=nn.ReLU(), hidden_layer=[64, 64])

@@ -30,7 +30,7 @@ class graph_model(torch.nn.Module):
 
 class PPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
-                 lr=1e-4, ent_coef=0.01, vf_coef=0.5,
+                 lr=1e-3, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
                  gamma=0.90, lam=0.95, cliprange=0.2,
                  buffer_size=50000, learning_starts=1000, running_step=2000, batch_training_round=20,
@@ -96,9 +96,9 @@ class PPO_Agent(Agent):
         observation = torch.from_numpy(observation)
         outcome, Q = self.run_graph_model.forward(observation)
         if isinstance(self.env.action_space, spaces.Box):
-            mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-            std = torch.index_select(outcome, -1, torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0]*2))
-            self.pd = self.dist(mu, torch.abs(std))
+            # mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
+            # std = torch.index_select(outcome, -1, torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0]*2))
+            self.pd = self.dist(outcome, 1)
             self.action = self.pd.sample()
         else:
             self.pd = self.dist(outcome)
@@ -133,7 +133,8 @@ class PPO_Agent(Agent):
             # adv = (adv - torch.mean(adv))/(torch.std(adv)+1e-8)
             # sample["advs"] = adv
             self.record_sample = sample
-            print("the runner have sampled "+str(self.running_step)+" data")
+            mean_ep_reward = torch.sum(sample["r"])/torch.sum(torch.eq(sample["tr"],1))
+            print("the runner have sampled "+str(self.running_step)+" data and the mean_ep_reward is ", mean_ep_reward)
             self.running_step = 0
 
         "1 need the sample "
@@ -148,13 +149,13 @@ class PPO_Agent(Agent):
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
             outcome, value_now = self.graph_model.forward(self.record_sample["s"])
             if isinstance(self.env.action_space, spaces.Box):
-                mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-                std = torch.index_select(outcome, -1,
-                                         torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0] * 2))
-                self.pd = self.dist(mu, torch.abs(std))
+                # mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
+                # std = torch.index_select(outcome, -1,
+                #                          torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0] * 2))
+                self.pd = self.dist(outcome, 1)
             else:
                 self.pd = self.dist(outcome)
-
+            csv_record(self.pd.mean.detach().numpy(), "./")
             neg_log_pac = - self.pd.log_prob(self.record_sample["a"])
             entropy = self.pd.entropy().mean()  # Entropy is used to improve exploration by limiting the premature convergence to suboptimal graph.
 
