@@ -5,3 +5,7 @@ savedate/.DS_Store
 *.csv
 *.iml
 *.xml
+.idea/Torch-rl.iml
+.idea/misc.xml
+*.xml
+*.iml

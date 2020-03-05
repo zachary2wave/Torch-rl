@@ -37,8 +37,8 @@ class actor_critic(nn.Module):
 
 class TD3_Agent(Agent):
     def __init__(self, env, actor_model, critic_model,
-                 actor_lr=1e-4, critic_lr=1e-3,
-                 actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
+                 actor_lr=1e-4, critic_lr=3e-4,
+                 actor_target_network_update_freq=0.1, critic_target_network_update_freq=0.1,
                  actor_training_freq=2, critic_training_freq=1,
                  ## hyper-parameter
                  gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
@@ -128,14 +128,14 @@ class TD3_Agent(Agent):
         return 0, {}
 
     def target_net_update(self):
-        if self.actor_target_network_update_freq>0:
+        if self.actor_target_network_update_freq>1:
             if self.step % self.actor_target_network_update_freq == 0:
                 self.target_actor.load_state_dict(self.actor.state_dict())
         else:
             for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
                 target_param.data.copy_(self.actor_target_network_update_freq * param.data +
                                         (1 - self.actor_target_network_update_freq) * target_param.data)
-        if self.critic_target_network_update_freq>0:
+        if self.critic_target_network_update_freq>1:
             if self.step % self.critic_target_network_update_freq == 0:
                 self.target_critic.load_state_dict(self.critic.state_dict())
         else:
