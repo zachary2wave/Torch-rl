@@ -73,7 +73,7 @@ class DDPG_Agent(Agent):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
-        action = torch.normal(action, 1)
+        action = torch.normal(action, torch.ones_like(action))
         Q = self.critic(torch.cat((observation, action),axis=0)).detach().numpy()
         action = action.data.numpy()
         return action, Q, {}

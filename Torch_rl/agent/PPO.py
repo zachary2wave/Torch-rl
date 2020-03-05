@@ -7,15 +7,7 @@ from copy import deepcopy
 from torch.optim import Adam
 from torch.autograd import Variable
 from gym import spaces
-
-
-import csv
-def csv_record(data,path):
-    with open(path+"record.csv", "a+") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(data)
-
-
+from Torch_rl.common.util import csv_record
 
 class graph_model(torch.nn.Module):
     def __init__(self, policy, value):

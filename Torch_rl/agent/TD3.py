@@ -7,6 +7,8 @@ from torch.optim import Adam
 from torch import nn
 from Torch_rl.common.loss import huber_loss
 from torch.autograd import Variable
+from Torch_rl.common.util import csv_record
+
 
 class critic_build(nn.Module):
     def __init__(self, critic):
@@ -35,9 +37,9 @@ class actor_critic(nn.Module):
 
 class TD3_Agent(Agent):
     def __init__(self, env, actor_model, critic_model,
-                 actor_lr=1e-4, critic_lr=1e-4,
+                 actor_lr=1e-4, critic_lr=1e-3,
                  actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
-                 actor_training_freq=1, critic_training_freq=1,
+                 actor_training_freq=2, critic_training_freq=1,
                  ## hyper-parameter
                  gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
                  ## decay
@@ -88,7 +90,8 @@ class TD3_Agent(Agent):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
-        action = action + torch.randn_like(action)
+        csv_record(action.detach().numpy(),"./")
+        action = torch.normal(action,torch.ones_like(action))
         Q, _ = self.critic(torch.cat((observation, action),axis=0))
         action = action.data.numpy()
         return action, Q.detach().numpy(), {}
@@ -119,19 +122,27 @@ class TD3_Agent(Agent):
                 self.actor.zero_grad()
                 Q.backward()
                 self.actor_optim.step()
-            if self.step % self.actor_target_network_update_freq == 0:
-                self.target_actor_net_update()
-            if self.step % self.critic_target_network_update_freq == 0:
-                self.target_critic_net_update()
+            self.target_net_update()
             loss = loss.data.numpy()
             return loss, {}
         return 0, {}
 
-    def target_actor_net_update(self):
-        self.target_actor.load_state_dict(self.actor.state_dict())
+    def target_net_update(self):
+        if self.actor_target_network_update_freq>0:
+            if self.step % self.actor_target_network_update_freq == 0:
+                self.target_actor.load_state_dict(self.actor.state_dict())
+        else:
+            for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
+                target_param.data.copy_(self.actor_target_network_update_freq * param.data +
+                                        (1 - self.actor_target_network_update_freq) * target_param.data)
+        if self.critic_target_network_update_freq>0:
+            if self.step % self.critic_target_network_update_freq == 0:
+                self.target_critic.load_state_dict(self.critic.state_dict())
+        else:
+            for param, target_param in zip(self.critic.parameters(), self.target_critic.parameters()):
+                target_param.data.copy_(self.critic_target_network_update_freq * param.data +
+                                        (1 - self.critic_target_network_update_freq) * target_param.data)
 
-    def target_critic_net_update(self):
-        self.target_critic.load_state_dict(self.critic.state_dict())
 
     def load_weights(self, filepath):
         model = torch.load(filepath + "TD3.pkl")
