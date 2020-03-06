@@ -53,9 +53,13 @@ class HumanOutputFormat(KVWriter, SeqWriter):
             valwidth = max(map(len, key2str.values()))
 
         # Write out the data
-        lines=""
-        for (key, val) in sorted(key2str.items()):
+        lines="***************************************\n"
+        for flag, (key, val) in enumerate(sorted(key2str.items())):
             lines += key + ":" + val + "\t"
+            if flag == 1:
+                lines += "\n"
+            if flag == 7:
+                lines += "\n"
         self.file.write('\n'.join( [lines]) + '\n')
         # Flush the output to the file
         self.file.flush()
