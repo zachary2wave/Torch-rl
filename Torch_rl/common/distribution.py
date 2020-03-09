@@ -1,60 +1,32 @@
 import torch
 import numpy as np
 
-def make_pdtype(ac_space):
+def make_pdtype(ac_space,actor):
     from gym import spaces
     if isinstance(ac_space, spaces.Box):
-        return DiagGaussianPd(ac_space.shape[0])
+        shape = ac_space.shape[0]
+        layer_infor = []
+        for name, param in actor.named_parameters():
+            if "weight" in name:
+                layer_infor.append(list(param.size()))
+        output_layer = layer_infor[-1][0]
+        return DiagGaussianPd_type(shape, output_layer)
     elif isinstance(ac_space, spaces.Discrete):
-        return CategoricalPd(ac_space.n)
+        return CategoricalPd(ac_space.n, actor)
     elif isinstance(ac_space, spaces.MultiDiscrete):
         return MultiCategoricalPd(ac_space.nvec)
     elif isinstance(ac_space, spaces.MultiBinary):
-        return BernoulliPd(ac_space.n)
+        return BernoulliPd(ac_space.n, actor)
     else:
         raise NotImplementedError
 
-class Pd(object):
-    """
-    A particular probability distribution
-    """
-    def build(self,actor):
-        # Usually it's easier to define the negative logprob
-        raise NotImplementedError
 
-    def sample(self):
-        raise NotImplementedError
-
-    def neglogp(self, x):
-        # Usually it's easier to define the negative logprob
-        raise NotImplementedError
-
-    def kl(self, other):
-        raise NotImplementedError
-
-    def entropy(self):
-        raise NotImplementedError
-
-
-
-    def logp(self, x):
-        return - self.neglogp(x)
-
-
-
-class DiagGaussianPd(Pd):
-    def __init__(self, shape):
+class DiagGaussianPd_type():
+    def __init__(self, shape, output_layer):
         self.shape = shape
+        self.output_layer = output_layer
 
-    def build(self, actor):
-        self.actor = actor
-        layer_infor = []
-        for name, param in self.actor.named_parameters():
-            if "weight" in name:
-                layer_infor.append(list(param.size()))
-        self.output_layer = layer_infor[-1][0]
-
-    def sample(self, output):
+    def __call__(self, output, *args, **kwargs):
         if self.output_layer == self.shape:
             self.mean = output
             self.logstd = torch.ones_like(output)
@@ -62,19 +34,33 @@ class DiagGaussianPd(Pd):
             self.mean = torch.index_select(output, -1, torch.arange(0, self.shape))
             self.logstd = torch.index_select(output, -1, torch.arange(self.shape, self.shape*2))
         self.std = torch.exp(self.logstd)
-        return torch.normal(self.mean, self.std)
+        return DiagGaussianPd(self.mean, self.std)
+
+
+
+class Pd(object):
+    """
+    A particular probability distribution
+    """
+
+    def sample(self):
+        return self.pd.sample()
 
     def neglogp(self, x):
-        return 0.5 * torch.sum(torch.pow((x - self.mean) / self.std, 2)) \
-        + torch.tensor(0.5 * np.log(2.0 * np.pi)) + torch.sum(self.std)
+        return -self.pd.log_prob(x)
 
     def kl(self, other):
-        assert isinstance(other, DiagGaussianPd)
-        return torch.sum(other.logstd - self.logstd + (self.std.pow(2) + torch.pow(self.mean - other.mean,2)) / (2.0 * other.std.pow(2)) - 0.5, axis=-1)
+        return torch.distributions.kl.kl_vergence(self.pd, other)
 
     def entropy(self):
-        return torch.sum(self.logstd + torch.tensor( .5 * np.log(2.0 * np.pi * np.e)), axis=-1)
+        return self.pd.entropy()
 
+
+
+class DiagGaussianPd(Pd):
+    def __init__(self, mean, std):
+        from torch.distributions import Normal
+        self.pd = Normal(mean, std)
 
 
 class CategoricalPd(Pd):

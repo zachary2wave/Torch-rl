@@ -138,7 +138,8 @@ class DQN_Agent(Agent):
                 _, next_actions = self.Q_net(sample["s_"]).max(1, keepdim=True)
                 targetQ = self.target_Q_net(sample["s_"]).gather(1, next_actions)
             else:
-                targetQ = self.target_Q_net(sample["s_"]).max(1, keepdim=True)
+                _, next_actions = self.target_Q_net(sample["s_"]).max(1, keepdim=True)
+                targetQ = self.target_Q_net(sample["s_"]).gather(1, next_actions)
             targetQ = targetQ.squeeze(1)
             Q = Q.squeeze(1)
             expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
@@ -157,10 +158,10 @@ class DQN_Agent(Agent):
         self.target_Q_net.load_state_dict(self.Q_net.state_dict())
 
     def load_weights(self, filepath):
-        model = torch.load(filepath)
-        self.Q_net.load_state_dict(model["Q_net"])
-        self.target_Q_net.load_state_dict(model["target_Q_net"])
-        self.optim.load_state_dict(model["optim"])
+        model = torch.load(filepath+'DQN.pkl')
+        self.Q_net.load_state_dict(model["Q_net"].state_dict())
+        self.target_Q_net.load_state_dict(model["target_Q_net"].state_dict())
+        # self.optim.load_state_dict(model["optim"])
 
     def save_weights(self, filepath, overwrite=True):
         torch.save({"Q_net": self.Q_net,
