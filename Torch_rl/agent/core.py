@@ -138,7 +138,7 @@ class Agent(ABC):
                         logger.record_tabular("05.episode_loss", ep_l)
                         # logger.record_tabular("06.episode_loss_per_step", ep_l / ep_cycle)
                         # logger.record_tabular("07.episode_Q_value", ep_q)
-                        # logger.record_tabular("08.episode_Q_value_per_step", ep_q / ep_cycle)
+                        logger.record_tabular("08.episode_Q_value_per_step", ep_q / ep_cycle)
                         # logger.record_tabular("09.mean 100 episode reward", mean_100ep_reward)
                         # logger.record_tabular("10.step_used", ep_cycle)
                         flag = 11
