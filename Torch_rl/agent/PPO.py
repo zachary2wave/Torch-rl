@@ -6,9 +6,9 @@ from copy import deepcopy
 from Torch_rl.common.distribution import *
 from torch.optim import Adam
 from torch.autograd import Variable
-from gym import spaces
+import random
 from Torch_rl.common.util import csv_record
-from Torch_rl.common.util import gae
+from Torch_rl.common.util import generate_reture
 
 class graph_model(torch.nn.Module):
     def __init__(self, policy, value):
@@ -25,7 +25,7 @@ class PPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
                  lr=1e-4, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
-                 gamma=0.90, lam=0.95, cliprange=0.2,
+                 gamma=0.90, lam=0.95, cliprange=0.2, batch_size = 32,
                  buffer_size=50000, learning_starts=1000, running_step=2000, batch_training_round=10,
                  value_regular=0.01,
                  ## decay
@@ -39,6 +39,7 @@ class PPO_Agent(Agent):
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.cliprange = cliprange
+        self.batch_size = batch_size
         self.batch_training_round = batch_training_round
         self.learning_starts = learning_starts
         if running_step =="synchronization":
@@ -107,7 +108,7 @@ class PPO_Agent(Agent):
             " sample advantage generate "
             sample = self.replay_buffer.recent_step_sample(self.running_step)
             last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
-            self.record_sample = gae(sample, last_value, self.gamma, self.lam)
+            self.record_sample = generate_reture(sample, last_value, self.gamma, self.lam)
             self.running_step = 0
 
         "1 need the sample "
@@ -116,24 +117,29 @@ class PPO_Agent(Agent):
         "4 training at the end of each ep to get the information"
         if self.record_sample is not None and \
            self.step > self.learning_starts and \
-           self.training_round < self.batch_training_round and\
-           sample_["tr"]==1:
+           self.training_round < self.batch_training_round:
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
 
+            sample_index = random.sample(range(self.record_sample["s"].size()[0]), self.batch_size)
+            S = self.record_sample["s"][sample_index].detach()
+            A = self.record_sample["a"][sample_index].detach()
+            old_neg_log = self.record_sample["neglogp"][sample_index].detach()
+            advs = self.record_sample["advs"][sample_index]
+            value = self.record_sample["value"][sample_index].detach()
+            returns = self.record_sample["return"][sample_index].detach()
             #generate Policy gradient loss
-            outcome, value_now = self.graph_model.forward(self.record_sample["s"])
+            outcome, value_now = self.graph_model.forward(S)
             new_policy = self.dist(outcome)
-            new_neg_lop = new_policy.neglogp(self.record_sample["a"])
-            ratio = torch.exp(self.record_sample["neglogp"] - new_neg_lop)
-            pg_loss1 = self.record_sample["advs"] * ratio
-            pg_loss2 = self.record_sample["advs"] * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
+            new_neg_lop = new_policy.neglogp(A)
+            ratio = torch.exp(old_neg_log - new_neg_lop)
+            pg_loss1 = advs * ratio
+            pg_loss2 = advs * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
             pg_loss = -.5 * torch.min(pg_loss1, pg_loss2).mean()
             # value loss
-            value_clip = self.record_sample["value"] + torch.clamp(self.record_sample["value"] - value_now,
-                                                                   min=-self.cliprange, max=self.cliprange) # Clipped value
-            vf_loss1 = self.loss_cal(value_now, self.record_sample["return"])   # Unclipped loss
-            vf_loss2 = self.loss_cal(value_clip, self.record_sample["return"])  # clipped loss
+            value_clip = value + torch.clamp(value - value_now, min=-self.cliprange, max=self.cliprange) # Clipped value
+            vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
+            vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
             vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
             # vf_loss = vf_loss1
             # entropy

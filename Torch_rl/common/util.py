@@ -26,3 +26,20 @@ def gae(sample, last_value, gamma, lam):
     mean_ep_reward = torch.sum(sample["r"])/torch.sum(torch.eq(sample["tr"],1))
     print("the runner have sampled "+str(running_step)+" data and the mean_ep_reward is ", mean_ep_reward)
     return sample
+
+def generate_reture(sample, last_value, gamma, lam):
+    running_step = sample["s"].size()[0]
+    sample["advs"] = torch.zeros((running_step, 1), dtype=torch.float32)
+    sample["return"] = torch.zeros((running_step, 1), dtype=torch.float32)
+
+    last_return = 0
+    for t in reversed(range(running_step)):
+        sample["return"][t] = last_return = sample["r"][t] + gamma * last_return * (1 - sample["tr"][t])
+
+    r = sample["return"]
+    r = (r - torch.mean(r)) / (torch.std(r) + 1e-8)
+    sample["return"] = r
+    sample["advs"] = sample["return"]-sample["value"]
+    mean_ep_reward = torch.sum(sample["r"]) / torch.sum(torch.eq(sample["tr"], 1))
+    print("the runner have sampled " + str(running_step) + " data and the mean_ep_reward is ", mean_ep_reward)
+    return sample
