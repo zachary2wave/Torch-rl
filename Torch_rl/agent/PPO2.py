@@ -3,10 +3,12 @@ import numpy as np
 from Torch_rl.agent.core import Agent
 from Torch_rl.common.memory import ReplayMemory
 from copy import deepcopy
-# from Torch_rl.common.distribution import *
+from Torch_rl.common.distribution import *
 from torch.optim import Adam
 from torch.autograd import Variable
-from gym import spaces
+import random
+from Torch_rl.common.util import csv_record
+from Torch_rl.common.util import generate_reture,gae
 
 class graph_model(torch.nn.Module):
     def __init__(self, policy, value):
@@ -19,15 +21,12 @@ class graph_model(torch.nn.Module):
         Q = self.value(obs)
         return output, Q
 
-
-
-
 class PPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
-                 lr=1e-3, ent_coef=0.01, vf_coef=0.5,
+                 lr=1e-4, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
-                 gamma=0.99, lam=0.95, cliprange=0.2,
-                 buffer_size=50000, learning_starts=1000, running_step="synchronization", batch_training_round=20,
+                 gamma=0.99, lam=0.95, cliprange=0.2, batch_size = 32,
+                 buffer_size=50000, learning_starts=1000, running_step="synchronization", batch_training_round=10,
                  value_regular=0.01,
                  ## decay
                  decay=False, decay_rate=0.9,
@@ -40,6 +39,7 @@ class PPO_Agent(Agent):
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.cliprange = cliprange
+        self.batch_size = batch_size
         self.batch_training_round = batch_training_round
         self.learning_starts = learning_starts
         if running_step =="synchronization":
@@ -47,7 +47,8 @@ class PPO_Agent(Agent):
         else:
             self.run_step = running_step
 
-        self.replay_buffer = ReplayMemory(buffer_size, ["value", "neglogp"])
+
+        self.replay_buffer = ReplayMemory(buffer_size, ["value", "logp"])
         self.loss_cal = torch.nn.MSELoss()
 
         self.policy_model = policy_model
@@ -62,9 +63,9 @@ class PPO_Agent(Agent):
 
         self.run_graph_model = deepcopy(self.graph_model)
 
-        self.dist = self.make_pdtype(env.action_space)
+        self.dist = make_pdtype(env.action_space, policy_model)
 
-        graph_model_optim = Adam(self.graph_model.parameters(), lr=lr)
+        graph_model_optim = Adam(self.graph_model.parameters(), lr=lr, weight_decay=value_regular)
         if decay:
             self.graph_model_optim = torch.optim.lr_scheduler.ExponentialLR(graph_model_optim, decay_rate,
                                                                              last_epoch=-1)
@@ -84,118 +85,90 @@ class PPO_Agent(Agent):
         self.training_round = 0
         self.running_step = 0
         self.record_sample = None
-        self.training_step = 0
 
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
         outcome, Q = self.run_graph_model.forward(observation)
-        if isinstance(self.env.action_space, spaces.Box):
-            mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-            std = torch.index_select(outcome, -1, torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0]*2))
-            self.pd = self.dist(mu, torch.abs(std))
-            self.action = self.pd.sample()
-        else:
-            self.pd = self.dist(outcome)
-            self.action = self.pd.sample()
+        self.pd = self.dist(outcome)
+        self.action = self.pd.sample()
         self.Q = Q.data.numpy()
-        return self.action.data.numpy(), self.Q, {}
+        return self.action.detach().numpy(), self.Q, {}
 
     def backward(self, sample_):
-        sample_["neglogp"] = - self.pd.log_prob(self.action)
-        sample_["value"] = self. Q
+        sample_["logp"] = self.pd.log_prob(self.action)
+        sample_["value"] = self.Q
         self.replay_buffer.push(sample_)
         self.running_step += 1
         """"""""""""""
         "training part"
         """"""""""""""
-        "1 training start flag"
-        "2 have enough sample "
-        "3 the training have finished"
         if self.step > self.learning_starts and\
            self.running_step % self.run_step == 0 and\
-           self.training_round == 0 and self.training_step == 0:
+           self.training_round == 0 and sample_["tr"] == 1:
             " sample advantage generate "
-            sample = self.replay_buffer.recent_step_sample(self.running_step)
-            sample["advs"] = torch.zeros((self.running_step, 1), dtype=torch.float32)
-            last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
-            lastgaelam = 0
-            value = torch.cat((sample["value"], last_value), dim=0)
-            for t in reversed(range(self.running_step)):
-                delta = sample["r"][t] + self.gamma * value[t+1] * (1-sample["tr"][t]) - value[t]
-                lastgaelam = delta + self.gamma * self.lam * (1-sample["tr"][t]) * lastgaelam
-                sample["advs"][t] = lastgaelam
-            sample["value"] = sample["advs"]+sample["value"]
+            print("")
+            with torch.no_grad():
+                sample = self.replay_buffer.recent_step_sample(self.running_step)
+                last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
+                self.record_sample = gae(sample, last_value, self.gamma, self.lam)
 
-            adv = sample["advs"]   # Normalize the advantages
-            adv = (adv - torch.mean(adv))/(torch.std(adv)+1e-8)
-            sample["advs"] = adv
-            self.record_sample = sample
-            print("the runner have sampled "+str(self.running_step)+" data")
             self.running_step = 0
-            self.training_step = 0
-
         "1 need the sample "
         "2 training start flag"
         "3 training round count"
+        "4 training at the end of each ep to get the information"
         if self.record_sample is not None and \
            self.step > self.learning_starts and \
-           self.training_round < self.batch_training_round:
-            training_s = self.record_sample["s"][self.training_step]
-            training_a = self.record_sample["a"][self.training_step]
-            training_r = self.record_sample["r"][self.training_step]
-            training_value = self.record_sample["value"][self.training_step]
-            training_neglogp = self.record_sample["neglogp"][self.training_step]
-            training_advs = self.record_sample["advs"][self.training_step]
+           self.training_round < self.batch_training_round and sample_["tr"] == 1:
+
+            start = (self.batch_size * self.batch_training_round) % self.record_sample["s"].size()[0]
+            if start+self.batch_size >= self.record_sample["s"].size()[0]:
+                end = self.record_sample["s"].size()[0]
+            else:
+                end = start+self.batch_size
+            index = np.arange(start, end)
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-            outcome, value_now = self.graph_model.forward(training_s)
-            if isinstance(self.env.action_space, spaces.Box):
-                mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-                std = torch.index_select(outcome, -1,
-                                         torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0] * 2))
-                self.pd = self.dist(mu, torch.abs(std))
-            else:
-                self.pd = self.dist(outcome)
-
-            neg_log_pac = - self.pd.log_prob(training_a)
-            entropy = self.pd.entropy().mean()  # Entropy is used to improve exploration by limiting the premature convergence to suboptimal graph
-
-            value_clip = training_value + torch.clamp(training_value - value_now, min=-self.cliprange, max = self.cliprange)
-
-            vf_loss1 = self.loss_cal(value_now, training_r)  # Unclipped loss
-            # Clipped value
-            vf_loss2 = self.loss_cal(value_clip, training_r)
-            vf_loss = .5 * torch.max(vf_loss1, vf_loss2).mean()
-
-            ratio = torch.exp(training_neglogp-neg_log_pac)
-            pg_loss1 = -training_advs * ratio
-            pg_loss2 = -training_advs * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
-            pg_loss = .5 * torch.max(pg_loss1, pg_loss2).mean()
-
+            S = self.record_sample["s"][index].detach()
+            A = self.record_sample["a"][index].detach()
+            old_log = self.record_sample["logp"][index].detach()
+            advs = self.record_sample["advs"][index]
+            value = self.record_sample["value"][index].detach()
+            returns = self.record_sample["return"][index].detach()
+            #generate Policy gradient loss
+            outcome, value_now = self.graph_model.forward(S)
+            new_policy = self.dist(outcome)
+            new_lop = new_policy.log_prob(A)
+            ratio = torch.exp(new_lop-old_log)
+            pg_loss1 = advs * ratio
+            pg_loss2 = advs * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
+            pg_loss = -.5 * torch.min(pg_loss1, pg_loss2).mean()
+            # value loss
+            value_clip = value + torch.clamp(value_now - value, min=-self.cliprange, max=self.cliprange) # Clipped value
+            vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
+            vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
+            vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
+            # vf_loss = 0.5 * vf_loss1
+            # entropy
+            entropy = new_policy.entropy().mean()
             loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
-
-            # print(value_now.detach().mean().numpy(), ratio.detach().mean().numpy())
 
             self.graph_model_optim.zero_grad()
             loss.backward(retain_graph=True)
             self.graph_model_optim.step()
 
-
             # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
             # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
-            self.training_step += 1
-            if self.training_step == self.record_sample["s"].size()[0]:
-                self.training_round += 1
-                self.training_step = 0
-            return loss.data.numpy(), {"pg_loss": pg_loss.detach().numpy(),
-                                       "entropy": entropy.detach().numpy(),
-                                       "vf_loss": vf_loss.detach().numpy()}
+            self.training_round += 1
+            return loss.data.numpy(), {"pg_loss": pg_loss.data.numpy(),
+                                       "entropy": entropy.data.numpy(),
+                                       "vf_loss": vf_loss.data.numpy()}
         if self.training_round == self.batch_training_round:
-            print("this round have training finished")
+            print("the"+str(self.episode)+" round have training finished")
             self.run_graph_model.load_state_dict(self.graph_model.state_dict())
             self.training_round = 0
-
+            self.record_sample = None
 
         return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
 
@@ -209,20 +182,3 @@ class PPO_Agent(Agent):
         torch.save({"graph_model": self.graph_model,
                     "graph_model_optim": self.graph_model_optim,
                     }, filepath + "PPO.pkl")
-
-    def make_pdtype(self, ac_space):
-        if isinstance(ac_space, spaces.Box):
-            from torch.distributions import Normal
-            return Normal
-        elif isinstance(ac_space, spaces.Discrete):
-            from torch.distributions import Categorical
-            return Categorical
-        elif isinstance(ac_space, spaces.MultiDiscrete):
-            from torch.distributions import Categorical
-            return Categorical
-        elif isinstance(ac_space, spaces.MultiBinary):
-            from torch.distributions import Bernoulli
-            return Bernoulli
-        else:
-            raise NotImplementedError
-
