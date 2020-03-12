@@ -10,17 +10,6 @@ from gym import spaces
 from Torch_rl.common.util import csv_record
 from Torch_rl.common.util import gae
 
-class graph_model(torch.nn.Module):
-    def __init__(self, policy, value):
-        super(graph_model, self).__init__()
-        self.policy = policy
-        self.value = value
-
-    def forward(self, obs):
-        output = self.policy(obs)
-        Q = self.value(obs)
-        return output, Q
-
 class TRPO_Agent(Agent):
     def __init__(self, env, policy_model, value_model,
                  lr=1e-3, ent_coef=0.01, vf_coef=0.5,
@@ -57,22 +46,19 @@ class TRPO_Agent(Agent):
         else:
             self.value_model = value_model
 
-        self.graph_model = graph_model(self.policy_model, self.value_model)
+        self.dist = self.make_pdtype(env.action_space, policy_model)
 
-        self.run_graph_model = deepcopy(self.graph_model)
 
-        self.dist = self.make_pdtype(env.action_space)
-
-        graph_model_optim = Adam(self.graph_model.parameters(), lr=lr, weight_decay=0.01)
+        value_model_optim = Adam(self.value_model.parameters(), lr=lr, weight_decay=0.01)
         if decay:
-            self.graph_model_optim = torch.optim.lr_scheduler.ExponentialLR(graph_model_optim, decay_rate,
+            self.value_model_optim = torch.optim.lr_scheduler.ExponentialLR(value_model_optim, decay_rate,
                                                                              last_epoch=-1)
         else:
-            self.graph_model_optim = graph_model_optim
+            self.value_model_optim = value_model_optim
 
-        torch.nn.utils.clip_grad_norm_(self.graph_model.parameters(), 1, norm_type=2)
+        torch.nn.utils.clip_grad_norm_(self.value_model.parameters(), 1, norm_type=2)
 
-        super(PPO_Agent, self).__init__(path)
+        super(TRPO_Agent, self).__init__(path)
         example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
         self.writer.add_graph(self.graph_model, input_to_model=example_input)
         self.forward_step_show_list = []
@@ -87,17 +73,12 @@ class TRPO_Agent(Agent):
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
-        outcome, Q = self.run_graph_model.forward(observation)
-        if isinstance(self.env.action_space, spaces.Box):
-            # mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-            # std = torch.index_select(outcome, -1, torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0]*2))
-            self.pd = self.dist(outcome, 1)
-            self.action = self.pd.sample()
-        else:
-            self.pd = self.dist(outcome)
-            self.action = self.pd.sample()
+        outcome = self.policy_model.forward(observation)
+        self.pd = self.dist(outcome)
+        self.action = self.pd.sample()
+        Q = self.value_model.forward(observation)
         self.Q = Q.data.numpy()
-        return self.action.data.numpy(), self.Q, {}
+        return self.action.detach().numpy(), self.Q, {}
 
     def backward(self, sample_):
         sample_["neglogp"] = - self.pd.log_prob(self.action)
@@ -109,25 +90,59 @@ class TRPO_Agent(Agent):
         """"""""""""""
         if self.step > self.learning_starts and\
            self.running_step % self.run_step == 0 and\
-           self.training_round == 0 :
+           self.training_round == 0 and sample_["tr"] == 1:
             " sample advantage generate "
-            sample = self.replay_buffer.recent_step_sample(self.running_step)
-            sample["advs"] = torch.zeros((self.running_step, 1), dtype=torch.float32)
-            last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
-            self.record_sample = gae(sample, last_value, self.gamma, self.lam)
+            with torch.no_grad():
+                sample = self.replay_buffer.recent_step_sample(self.running_step)
+                last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
+                self.record_sample = gae(sample, last_value, self.gamma, self.lam)
             self.running_step = 0
-
         "1 need the sample "
         "2 training start flag"
         "3 training round count"
         "4 training at the end of each ep to get the information"
         if self.record_sample is not None and \
            self.step > self.learning_starts and \
-           self.training_round < self.batch_training_round and\
-           sample_["tr"]==1:
-            " CALCULATE THE LOSS"
+           self.training_round < self.batch_training_round and sample_["tr"] == 1:
+            start = (self.batch_size * self.batch_training_round) % self.record_sample["s"].size()[0]
+            if start+self.batch_size >= self.record_sample["s"].size()[0]:
+                end = self.record_sample["s"].size()[0]
+            else:
+                end = start+self.batch_size
+            index = np.arange(start, end)
+            S = self.record_sample["s"][index].detach()
+            A = self.record_sample["a"][index].detach()
+            old_log = self.record_sample["logp"][index].detach()
+            advs = self.record_sample["advs"][index]
+            value = self.record_sample["value"][index].detach()
+            returns = self.record_sample["return"][index].detach()
+
+            "TRAIN THE VALUE_MODEL"
+            Q = self.value_model(S)
+            loss = self.loss_cal(Q, advs + returns)
+            self.value_model_optim.zero_grad()
+            loss.backward()
+            self.value_model_optim.step()
+
+            "TRAIN THE POLICY_MODEL"
+            outcome = self.policy_model.forward(S)
+            new_policy = self.dist(outcome)
+            new_lop = new_policy.log_prob(A)
+            ratio = torch.exp(new_lop - old_log)
+            loss = advs * ratio
+            torch.autograd.grad(loss, self.policy_model.parameters())
+
+
+
+
+
+
+
+
+
+
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-            outcome, value_now = self.graph_model.forward(self.record_sample["s"])
+
             if isinstance(self.env.action_space, spaces.Box):
                 # mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
                 # std = torch.index_select(outcome, -1,
@@ -184,19 +199,6 @@ class TRPO_Agent(Agent):
                     "graph_model_optim": self.graph_model_optim,
                     }, filepath + "PPO.pkl")
 
-    def make_pdtype(self, ac_space):
-        if isinstance(ac_space, spaces.Box):
-            from torch.distributions import Normal
-            return Normal
-        elif isinstance(ac_space, spaces.Discrete):
-            from torch.distributions import Categorical
-            return Categorical
-        elif isinstance(ac_space, spaces.MultiDiscrete):
-            from torch.distributions import Categorical
-            return Categorical
-        elif isinstance(ac_space, spaces.MultiBinary):
-            from torch.distributions import Bernoulli
-            return Bernoulli
-        else:
-            raise NotImplementedError
 
+
+    def

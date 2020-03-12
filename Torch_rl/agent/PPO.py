@@ -17,7 +17,7 @@ class PPO_Agent(Agent):
                  ## hyper-parawmeter
                  gamma=0.99, lam=0.95, cliprange=0.2, batch_size = 32,
                  buffer_size=50000, learning_starts=1000, running_step="synchronization", batch_training_round=10,
-                 value_regular=0.01,
+                 value_regular=0.01, train_value_round = 10,
                  ## decay
                  decay=False, decay_rate=0.9,
                  ##
@@ -32,13 +32,14 @@ class PPO_Agent(Agent):
         self.batch_size = batch_size
         self.batch_training_round = batch_training_round
         self.learning_starts = learning_starts
+        self.train_value_round = train_value_round
         if running_step =="synchronization":
             self.run_step = 1
         else:
             self.run_step = running_step
 
 
-        self.replay_buffer = ReplayMemory(buffer_size, ["value", "logp"])
+        self.replay_buffer = ReplayMemory(buffer_size)
         self.loss_cal = torch.nn.MSELoss()
 
         self.policy_model = policy_model
@@ -83,16 +84,13 @@ class PPO_Agent(Agent):
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
-        with torch.no_grad():
-            outcome = self.policy_model.forward(observation)
-            self.pd = self.dist(outcome)
-            self.action = self.pd.sample()
-            self.Q = self.value_model.forward(observation)
+        outcome = self.policy_model.forward(observation)
+        self.pd = self.dist(outcome)
+        self.action = self.pd.sample()
+        self.Q = self.value_model.forward(observation)
         return self.action.detach().numpy(), self.Q.detach().numpy(), {}
 
     def backward(self, sample_):
-        sample_["logp"] = self.pd.log_prob(self.action)
-        sample_["value"] = self.Q
         self.replay_buffer.push(sample_)
         self.running_step += 1
         """"""""""""""
@@ -102,10 +100,15 @@ class PPO_Agent(Agent):
             if self.record_sample is None and self.running_step > self.run_step:
                 print("***************************************")
                 print("In the ", self.episode, "ep")
-                " sample advantage generate "
                 sample = self.replay_buffer.recent_step_sample(self.running_step)
+                " sample advantage generate "
+                sample["value"] = self.value_model.forward(sample["s"])
                 last_value = self.value_model.forward(sample["s_"][-1])
                 self.record_sample = gae(sample, last_value, self.gamma, self.lam)
+                " sample log_probabilty generate"
+                outcome = self.policy_model.forward(sample["s"])
+                self.pd = self.dist(outcome)
+                sample["logp"] = self.pd.log_prob(sample["a"])
                 self.loss_record = {"pg_loss": [], "entropy": [], "vf_loss": [], "loss": []}
                 self.running_step = 0
             if self.record_sample is not None:
@@ -117,14 +120,28 @@ class PPO_Agent(Agent):
                     else:
                         end = start+self.batch_size
                     index = np.arange(start, end)
-                    " CALCULATE THE LOSS"
-                    " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
                     S = self.record_sample["s"][index].detach()
                     A = self.record_sample["a"][index].detach()
                     old_log = self.record_sample["logp"][index].detach()
                     advs = self.record_sample["advs"][index].detach()
                     value = self.record_sample["value"][index].detach()
                     returns = self.record_sample["return"][index].detach()
+
+                    " traning the value model"
+                    for _ in range(self.train_value_round):
+                        value_now = self.value_model.forward(S)
+                        value_clip = value + torch.clamp(value_now - value, min=-self.cliprange, max=self.cliprange) # Clipped value
+                        vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
+                        vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
+                        vf_loss = self.vf_coef*.5 * torch.max(vf_loss1, vf_loss2)  # value loss
+                        # vf_loss = 0.5 * vf_loss1
+
+                        self.value_model_optim.zero_grad()
+                        vf_loss.backward()
+                        self.value_model_optim.step()
+                    " CALCULATE THE LOSS"
+                    " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
+
                     #generate Policy gradient loss
                     outcome = self.policy_model.forward(S)
                     new_policy = self.dist(outcome)
@@ -140,20 +157,6 @@ class PPO_Agent(Agent):
                     self.policy_model_optim.zero_grad()
                     loss.backward()
                     self.policy_model_optim.step()
-
-
-                    # value loss
-                    value_now = self.value_model.forward(S)
-                    value_clip = value + torch.clamp(value_now - value, min=-self.cliprange, max=self.cliprange) # Clipped value
-                    vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
-                    vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
-                    vf_loss = self.vf_coef*.5 * torch.max(vf_loss1, vf_loss2)
-                    # vf_loss = 0.5 * vf_loss1
-
-                    self.value_model_optim.zero_grad()
-                    vf_loss.backward()
-                    self.value_model_optim.step()
-
                     loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
                     # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
                     # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
