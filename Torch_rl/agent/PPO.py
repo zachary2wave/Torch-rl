@@ -17,7 +17,7 @@ class PPO_Agent(Agent):
                  ## hyper-parawmeter
                  gamma=0.99, lam=0.95, cliprange=0.2, batch_size = 32,
                  buffer_size=50000, learning_starts=1000, running_step="synchronization", batch_training_round=10,
-                 value_regular=0.01, train_value_round = 10,
+                 value_regular=0.01, train_value_round = 1,
                  ## decay
                  decay=False, decay_rate=0.9,
                  ##
@@ -102,7 +102,7 @@ class PPO_Agent(Agent):
                 print("In the ", self.episode, "ep")
                 sample = self.replay_buffer.recent_step_sample(self.running_step)
                 " sample advantage generate "
-                sample["value"] = self.value_model.forward(sample["s"])
+                sample["value"] = self.value_model.forward(sample["s"]).squeeze()
                 last_value = self.value_model.forward(sample["s_"][-1])
                 self.record_sample = gae(sample, last_value, self.gamma, self.lam)
                 " sample log_probabilty generate"
@@ -114,7 +114,7 @@ class PPO_Agent(Agent):
             if self.record_sample is not None:
                 print("the learning has start...........")
                 while self.training_round < self.batch_training_round:
-                    start = (self.batch_size * self.batch_training_round) % self.record_sample["s"].size()[0]
+                    start = (self.batch_size * self.training_round) % self.record_sample["s"].size()[0]
                     if start+self.batch_size >= self.record_sample["s"].size()[0]:
                         end = self.record_sample["s"].size()[0]
                     else:
@@ -128,17 +128,13 @@ class PPO_Agent(Agent):
                     returns = self.record_sample["return"][index].detach()
 
                     " traning the value model"
-                    for _ in range(self.train_value_round):
-                        value_now = self.value_model.forward(S)
-                        value_clip = value + torch.clamp(value_now - value, min=-self.cliprange, max=self.cliprange) # Clipped value
-                        vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
-                        vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
-                        vf_loss = self.vf_coef*.5 * torch.max(vf_loss1, vf_loss2)  # value loss
-                        # vf_loss = 0.5 * vf_loss1
 
-                        self.value_model_optim.zero_grad()
-                        vf_loss.backward()
-                        self.value_model_optim.step()
+                    value_now = self.value_model.forward(S)
+                    value_clip = value + torch.clamp(value_now - value, min=-self.cliprange, max=self.cliprange) # Clipped value
+                    vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
+                    vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
+                    vf_loss = .5 * torch.max(vf_loss1, vf_loss2)  # value loss
+                    # vf_loss = 0.5 * vf_loss1
                     " CALCULATE THE LOSS"
                     " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
 
@@ -153,11 +149,17 @@ class PPO_Agent(Agent):
 
                     # entropy
                     entropy = new_policy.entropy().mean()
-                    loss = pg_loss - entropy * self.ent_coef
+                    loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+
+                    self.value_model_optim.zero_grad()
+                    loss.backward(retain_graph=True)
+                    self.value_model_optim.step()
+
                     self.policy_model_optim.zero_grad()
                     loss.backward()
                     self.policy_model_optim.step()
-                    loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+
+
                     # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
                     # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
                     self.training_round += 1
