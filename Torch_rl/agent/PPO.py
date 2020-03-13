@@ -96,7 +96,7 @@ class PPO_Agent(Agent):
         """"""""""""""
         "training part"
         """"""""""""""
-        if self.step > self.learning_starts:
+        if self.step > self.learning_starts and self.learning:
             if self.record_sample is None and self.running_step > self.run_step:
                 print("***************************************")
                 print("In the ", self.episode, "ep")
@@ -120,8 +120,8 @@ class PPO_Agent(Agent):
                     else:
                         end = start+self.batch_size
                     index = np.arange(start, end)
-                    S = self.record_sample["s"][index].detach()
-                    A = self.record_sample["a"][index].detach()
+                    S = self.record_sample["s"][index]
+                    A = self.record_sample["a"][index]
                     old_log = self.record_sample["logp"][index].detach()
                     advs = self.record_sample["advs"][index].detach()
                     value = self.record_sample["value"][index].detach()
@@ -134,7 +134,7 @@ class PPO_Agent(Agent):
                     vf_loss1 = self.loss_cal(value_now, returns)   # Unclipped loss
                     vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
                     vf_loss = .5 * torch.max(vf_loss1, vf_loss2)  # value loss
-                    # vf_loss = 0.5 * vf_loss1
+                    vf_loss = 0.5 * vf_loss1
                     " CALCULATE THE LOSS"
                     " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
 
