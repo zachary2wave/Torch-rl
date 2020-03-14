@@ -94,7 +94,6 @@ class DRQN_Agent(Agent):
         self.learning_starts = learning_starts
         self.target_network_update_freq = target_network_update_freq
         self.double_dqn = double_dqn
-
         if dueling_dqn:
             self.Q_net = Dueling_dqn(model, dueling_way)
         else:
@@ -108,7 +107,7 @@ class DRQN_Agent(Agent):
         else:
             self.optim = q_net_optim
 
-        self.replay_buffer = ReplayMemory_Sequence(buffer_size, max_seq_len, other_record=None)
+        self.replay_buffer = ReplayMemory_Sequence(buffer_size, max_seq_len, other_record="h")
 
         self.replay_buffer.batch_size = batch_size
         self.replay_buffer.sequence_len = replay_len
@@ -117,18 +116,20 @@ class DRQN_Agent(Agent):
         else:
             self.replay_sample = self.replay_buffer.sample_ep
         self.learning = False
-        super(DQN_Agent, self).__init__(path)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        super(DRQN_Agent, self).__init__(path)
+        example_input = Variable(torch.rand(replay_len, 100, self.env.observation_space.shape[0]))
         self.writer.add_graph(self.Q_net, input_to_model=example_input)
         self.forward_step_show_list = []
         self.backward_step_show_list =[]
         self.forward_ep_show_list = []
         self.backward_ep_show_list = []
 
+        self.h_state = model.init_H_C(1)
+
     def forward(self, observation):
         observation = observation.astype(np.float32)
         observation = torch.from_numpy(observation)
-        Q_value = self.Q_net.forward(observation)
+        Q_value, self.h_state = self.Q_net.forward(observation, self.h_state)
         Q_value = Q_value.detach().numpy()
         if self.policy is not None:
             action = self.policy.select_action(Q_value)
@@ -137,6 +138,7 @@ class DRQN_Agent(Agent):
         return action, np.max(Q_value), {}
 
     def backward(self, sample_):
+        sample_["h"] = self.h_state
         self.replay_buffer.push(sample_)
         if self.step > self.learning_starts and self.learning:
             sample = self.replay_sample()

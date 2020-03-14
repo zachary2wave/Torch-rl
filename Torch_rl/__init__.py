@@ -10,6 +10,6 @@ from Torch_rl.agent.HIRO import HIRO_Agent as HIRO
 
 #  network
 from Torch_rl.model.Network import DenseNet
-
+from Torch_rl.model.Network import LSTM_Dense
 
 

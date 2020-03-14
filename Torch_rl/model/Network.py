@@ -111,37 +111,52 @@ class LSTM_Dense(nn.Module):
         self._layer_num = [input_size] + [lstm_unit] * lstm_layer + dense_layer + [output_size]
         self.LSTM = nn.LSTM(input_size=input_size,
                             hidden_size=lstm_unit,
-                            num_layers=lstm_layer,
-                            batch_first=True)
+                            num_layers=lstm_layer)
 
-    def init_H_C(self):
-        return (Variable(torch.zeros(1, 1, self.lstm_unit)),
-                Variable(torch.zeros(1, 1, self.lstm_unit)))
+    def init_H_C(self,batch_size):
+        return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
+                Variable(torch.zeros(1, batch_size, self.lstm_unit)))
 
     def forward(self, x, h_state):
+        if h_state is None:
+            h_state = self.init_H_C(x.size()[1])
         x, h_state = self.LSTM(x, h_state)
         x = self.hidden_activate(x)
         x = self.Dense(x)
-        return x
+        return x, h_state
 
 
 class CNN_2D_Dense(nn.Module):
-    def __init__(self, input_size, output_size, kernal_size=[(5,7,7),(10,5,5),(15,3,3)],
-                 stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros',
+    def __init__(self, input_size, output_size,
+                 # CNN_layer
+                 kernal_size=[(32, 7), (64, 5), (128, 3)],
+                 stride=1, padding=0,  padding_mode='zeros',
+                 # pooling
+                 pooling_way = "Max", pooling_kernal= 2, pooling_stride = 2,
+                 # Dense
                  dense_layer = [64, 64], hidden_activate=nn.ReLU(), output_activate=None,
                  BatchNorm = False):
         super(CNN_2D_Dense, self).__init__()
 
-        self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
+        first = [input_size]+[kernal[0] for kernal in kernal_size ]
+        if pooling_way == "Max":
+            poollayer = torch.nn.MaxPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
+        elif pooling_way == "Max":
+            poollayer = torch.nn.AvgPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
+        cnnlayer=[]
+        for flag, kernal in enumerate(kernal_size):
+            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first, kernal[0], kernel_size=kernal[1],
+                                                 stride=stride,padding=padding,padding_mode=padding_mode)))
+            cnnlayer.append(("cnn_activate" + str(flag), deepcopy(hidden_activate)))
+            cnnlayer.append(("pooling" + str(flag), deepcopy(poollayer)))
+
+        self.CNN = nn.Sequential(OrderedDict(cnnlayer))
+        self.input_dense = kernal_size[-1][0]*kernal_size[-1][1]*kernal_size[-1][1]
+        self.Dendse = DenseNet(self.input_dense, output_size, hidden_layer=dense_layer,
                                hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
 
-        self._layer_num = [input_size]+[lstm_unit]*lstm_layer+dense_layer+output_size
-        self.LSTM = nn.LSTM(input_size=input_size,
-                            output_size=lstm_unit,
-                            num_layers=lstm_layer,
-                            batch_first=True)
-    def forward(self, x, h_state):
-        x, h_state = self.LSTM(x, h_state)
-        for layer in self.linears:
-            x = layer(x)
+    def forward(self, x):
+        x = self.CNN(x)
+        x = x.view(x.size(0), -1)
+        x = self.Dendse(x)
         return x
