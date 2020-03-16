@@ -4,6 +4,7 @@ from torch import nn
 from collections import OrderedDict
 from torch.distributions import Normal, Categorical
 from torch.autograd import Variable
+from copy import deepcopy
 # from graphviz import Digraph
 
 #
@@ -145,7 +146,7 @@ class CNN_2D_Dense(nn.Module):
             poollayer = torch.nn.AvgPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
         cnnlayer=[]
         for flag, kernal in enumerate(kernal_size):
-            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first, kernal[0], kernel_size=kernal[1],
+            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first[0], kernal[0], kernel_size=kernal[1],
                                                  stride=stride,padding=padding,padding_mode=padding_mode)))
             cnnlayer.append(("cnn_activate" + str(flag), deepcopy(hidden_activate)))
             cnnlayer.append(("pooling" + str(flag), deepcopy(poollayer)))
