@@ -16,7 +16,8 @@ policy_model = DenseNet(env.observation_space.shape[0], env.action_space.shape[0
 value_model = DenseNet(env.observation_space.shape[0], 1,
                   hidden_activate=nn.ReLU(), hidden_layer=[64, 64])
 
-Agent = PPO(env, policy_model, value_model, running_step=2048, batch_training_round=20, path=path)
+Agent = PPO(env, policy_model, value_model, gamma=0.90,
+            lr=1e-4, running_step=2048, batch_training_round=20, path=path)
 
 Agent.train(max_step=1500000, render=False, verbose=0,record_ep_inter=100)
 Agent.test(max_step=10000, render=True, verbose=2)
