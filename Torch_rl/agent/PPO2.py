@@ -104,11 +104,11 @@ class PPO_Agent(Agent):
                 " sample advantage generate "
                 with torch.no_grad():
                     sample = self.replay_buffer.recent_step_sample(self.running_step)
-                    last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
+                    last_value = self.value_model.forward(sample["s_"][-1])
                     self.record_sample = gae(sample, last_value, self.gamma, self.lam)
                 self.running_step = 0
 
-            if self.training_step < self.sample_training_step:
+            if self.training_step < self.sample_training_step and self.record_sample is not None:
                 pg_loss_re = 0
                 entropy_re = 0
                 vf_loss_re = 0
@@ -140,6 +140,8 @@ class PPO_Agent(Agent):
                     # entropy
                     entropy = new_policy.entropy().mean()
                     loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+                    # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
+                    # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
 
                     self.value_model_optim.zero_grad()
                     loss.backward(retain_graph=True)
@@ -155,15 +157,13 @@ class PPO_Agent(Agent):
                     vf_loss_re += vf_loss.data.numpy()
                     loss_re += loss.data.numpy()
 
-            if self.training_step == self.sample_training_step:
-                print("the" + str(self.episode) + " round have training finished")
-                self.run_policy.load_state_dict(self.policy_model.state_dict())
-                self.run_value.load_state_dict(self.value_model.state_dict())
-                self.training_step = 0
-                self.record_sample = None
-            # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
-            # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
-            return loss_re, {"pg_loss": pg_loss_re, "entropy": entropy_re, "vf_loss": vf_loss_re}
+                if self.training_step == self.sample_training_step:
+                    print("the" + str(self.episode) + " round have training finished")
+                    self.run_policy.load_state_dict(self.policy_model.state_dict())
+                    self.run_value.load_state_dict(self.value_model.state_dict())
+                    self.training_step = 0
+                    self.record_sample = None
+                return loss_re, {"pg_loss": pg_loss_re, "entropy": entropy_re, "vf_loss": vf_loss_re}
         return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
 
     def load_weights(self, filepath):
