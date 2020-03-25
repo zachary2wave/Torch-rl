@@ -98,6 +98,9 @@ class DenseNet(nn.Module):
     def layer_infor(self):
         return list(self._layer_num)
 
+    def to_gpu(self, device=None):
+        self.linears.cuda(device=device)
+
 
 class LSTM_Dense(nn.Module):
     def __init__(self, input_size, output_size, lstm_unit=64, lstm_layer=1, dense_layer=[64, 64],
@@ -118,13 +121,17 @@ class LSTM_Dense(nn.Module):
         return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
                 Variable(torch.zeros(1, batch_size, self.lstm_unit)))
 
-    def forward(self, x, h_state):
+    def forward(self, x, h_state=None):
         if h_state is None:
             h_state = self.init_H_C(x.size()[1])
         x, h_state = self.LSTM(x, h_state)
         x = self.hidden_activate(x)
         x = self.Dense(x)
         return x, h_state
+
+    def to_gpu(self, device=None):
+        self.LSTM.cuda(device=device)
+        self.Dense.cuda(device=device)
 
 
 class CNN_2D_Dense(nn.Module):
@@ -139,25 +146,100 @@ class CNN_2D_Dense(nn.Module):
                  BatchNorm = False):
         super(CNN_2D_Dense, self).__init__()
 
-        first = [input_size]+[kernal[0] for kernal in kernal_size ]
-        if pooling_way == "Max":
-            poollayer = torch.nn.MaxPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
-        elif pooling_way == "Max":
-            poollayer = torch.nn.AvgPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
+        first = [input_size[0]]+[kernal[0] for kernal in kernal_size ]
+
         cnnlayer=[]
         for flag, kernal in enumerate(kernal_size):
-            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first[0], kernal[0], kernel_size=kernal[1],
-                                                 stride=stride,padding=padding,padding_mode=padding_mode)))
+            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first[flag], kernal[0], kernel_size=kernal[1],
+                                                 stride=stride, padding=padding, padding_mode=padding_mode)))
             cnnlayer.append(("cnn_activate" + str(flag), deepcopy(hidden_activate)))
-            cnnlayer.append(("pooling" + str(flag), deepcopy(poollayer)))
+            if pooling_way == "Max":
+                cnnlayer.append(("pooling" + str(flag),torch.nn.MaxPool2d(kernel_size=pooling_kernal, stride=pooling_stride)))
+            elif pooling_way == "Ave":
+                cnnlayer.append(("pooling" + str(flag),torch.nn.AvgPool2d(kernel_size=pooling_kernal, stride=pooling_stride)))
 
         self.CNN = nn.Sequential(OrderedDict(cnnlayer))
-        self.input_dense = kernal_size[-1][0]*kernal_size[-1][1]*kernal_size[-1][1]
+        self.input_dense = self.size_cal(input_size)
         self.Dendse = DenseNet(self.input_dense, output_size, hidden_layer=dense_layer,
                                hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
+
+    def size_cal(self, input_size):
+        test_input = torch.rand((1,)+input_size)
+        test_out = self.CNN(test_input)
+        return test_out.size(1)*test_out.size(2)*test_out.size(3)
 
     def forward(self, x):
         x = self.CNN(x)
         x = x.view(x.size(0), -1)
         x = self.Dendse(x)
         return x
+
+    def to_gpu(self, device=None):
+        self.CNN.cuda(device=device)
+        self.Dense.cuda(device=device)
+
+class CNN_2D_LSTM_Dense(nn.Module):
+    def __init__(self, input_size, output_size,
+                 # CNN_layer
+                 kernal_size=[(32, 7), (64, 5), (128, 3)],
+                 stride=1, padding=0,  padding_mode='zeros',
+                 # pooling
+                 pooling_way = "Max", pooling_kernal= 2, pooling_stride = 2,
+                 # LSTM
+                 lstm_unit=64, lstm_layer=1,
+                 # Dense
+                 dense_layer = [64, 64], hidden_activate=nn.ReLU(), output_activate=None,
+                 BatchNorm = False):
+        super(CNN_2D_LSTM_Dense, self).__init__()
+
+        first = [input_size[0]]+[kernal[0] for kernal in kernal_size ]
+        if pooling_way == "Max":
+            poollayer = torch.nn.MaxPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
+        elif pooling_way == "Max":
+            poollayer = torch.nn.AvgPool2d(kernel_size=pooling_kernal, stride=pooling_stride)
+        cnnlayer=[]
+        for flag, kernal in enumerate(kernal_size):
+            cnnlayer.append(("cnn" + str(flag), nn.Conv2d(first[flag], kernal[0], kernel_size=kernal[1],
+                                                 stride=stride,padding=padding,padding_mode=padding_mode)))
+            cnnlayer.append(("cnn_activate" + str(flag), deepcopy(hidden_activate)))
+            cnnlayer.append(("pooling" + str(flag), deepcopy(poollayer)))
+
+        self.CNN = nn.Sequential(OrderedDict(cnnlayer))
+        self.input_lstm = self.size_cal(input_size)
+        self.lstm_unit = lstm_unit
+        self.LSTM = nn.LSTM(input_size=self.input_lstm,
+                            hidden_size=lstm_unit,
+                            num_layers=lstm_layer)
+
+        self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
+                               hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
+
+    def init_H_C(self,batch_size):
+        return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
+                Variable(torch.zeros(1, batch_size, self.lstm_unit)))
+
+    def size_cal(self, input_size):
+        test_input = torch.rand((1,)+input_size)
+        test_out = self.CNN(test_input)
+        return test_out.size(1)*test_out.size(2)*test_out.size(3)
+
+    def forward(self, x, h = None):
+        batch_size = x.size(1)
+        squence_size = x.size(0)
+        conjection = ()
+        for time in range(squence_size):
+            cnnout = self.CNN(x[time])
+            cnnout = cnnout.view(batch_size, -1)
+            cnnout = cnnout.unsqueeze(0)
+            conjection = conjection + (cnnout,)
+        x = torch.cat(conjection, dim=0)
+        if h is None:
+            h = self.init_H_C(batch_size)
+        x, h = self.LSTM(x, h)
+        x = self.Dendse(x)
+        return x
+
+    def to_gpu(self, device=None):
+        self.CNN.cuda(device=device)
+        self.LSTM.cuda(device=device)
+        self.Dense.cuda(device=device)

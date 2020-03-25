@@ -4,12 +4,17 @@ import random
 import numpy as np
 from abc import ABC
 from copy import deepcopy
+from collections import deque
 
 class Memory(ABC):
 
     def __init__(self, capacity, other_record=None):
         self.capacity = capacity
-        self.memory = {"s": [], "a": [], "s_" : [], "r": [], "tr": []}
+        self.memory = {"s":  deque(maxlen=capacity),
+                       "a":  deque(maxlen=capacity),
+                       "s_": deque(maxlen=capacity),
+                       "r":  deque(maxlen=capacity),
+                       "tr": deque(maxlen=capacity)}
         if other_record is not None:
             for key in other_record:
                 self.memory[key] = []
@@ -29,9 +34,6 @@ class ReplayMemory(Memory):
         """Saves a transition."""
         for key in self.memory.keys():
             self.memory[key].append(sample[key])
-        if len(self.memory["s"]) > self.capacity:
-            for key in self.memory.keys():
-                del self.memory[key][0]
         self.position = (self.position + 1) % self.capacity
     def sample(self, batch_size):
         sample_index = random.sample(range(len(self.memory["s"])), batch_size)
@@ -112,7 +114,10 @@ class ReplayMemory_Sequence():
     def push(self, sample):
         """Saves a transition."""
         for key in self.memory[self.position].keys():
-            self.memory[self.position][key].append(sample[key])
+            if sample[key] is np.ndarray:
+                self.memory[self.position][key].append(sample[key])
+            else:
+                self.memory[self.position][key].append(np.array(sample[key]))
         if sample["tr"] == 1:
             self.position = (self.position + 1) % self.capacity
             if self.max_position <= self.capacity:
@@ -124,11 +129,10 @@ class ReplayMemory_Sequence():
             self.batch_size = batch_size
         sample_index = random.sample(range(self.max_position), self.batch_size)
         sample = {}
-        for key in self.Sequence.key():
+        for key in self.Sequence.keys():
             sample[key] = torch.empty((self.max_seq_len, self.batch_size, self.memory[0][key][0].shape[0]), dtype=torch.float32)
-        for flag, index in enumerate(sample_index):
-            ep_len = len(self.memory[index]['s'])
-            for key in self.memory.keys():
+            for flag, index in enumerate(sample_index):
+                ep_len = len(self.memory[index]['s'])
                 for time_step in range(self.max_seq_len):
                     if ep_len > self.max_seq_len:
                         print("the memory size is longer than max_seq_len")
@@ -136,9 +140,10 @@ class ReplayMemory_Sequence():
                     elif ep_len == self.max_seq_len:
                         sample[key][time_step, flag, :] = torch.from_numpy(self.memory[index][key][time_step])
                     else:
-                        sample[key][time_step, flag, :] = torch.from_numpy(np.append(self.memory[index][key][time_step],
-                                                                    np.zeros(self.max_seq_len - ep_len)))
-
+                        for time_step in range(ep_len):
+                            sample[key][time_step, flag, :] = torch.from_numpy(self.memory[index][key][time_step])
+                        for time_step in range(ep_len, self.max_seq_len):
+                            sample[key][time_step, flag, :] = torch.zeros(size=len(self.memory[index][key][0]))
         return sample
 
     def sample_sequence(self, batch_size=None, sequence_len=None):
@@ -147,21 +152,24 @@ class ReplayMemory_Sequence():
         if sequence_len is not None:
             self.sequence_len = sequence_len
         sample = {}
-        for key in self.Sequence.key():
-            sample[key] = torch.empty((self.sequence_len, self.batch_size, self.memory[0][key][0].shape[0]), dtype=torch.float32)
-        for loop in range(self.batch_size):
-            index = random.sample(range(self.max_position), 1)[0]
-            ep_len = len(self.memory[index]['s'])
-            for key in self.memory[index].keys():
-                if ep_len <= sequence_len:
-                    for time_step in range(sequence_len):
-                        sample[key][time_step, loop, :] = torch.from_numpy(np.append(self.memory[index][key][time_step],
-                                                                      np.zeros(sequence_len - ep_len)))
+        for key in self.Sequence.keys():
+            temp_len = self.memory[0][key][0].size
+            sample[key] = torch.empty((self.sequence_len, self.batch_size, temp_len), dtype=torch.float32)
+            for loop in range(self.batch_size):
+                index = random.sample(range(self.max_position), 1)[0]
+                ep_len = len(self.memory[index]['s'])
+                if ep_len <= self.sequence_len:
+                    for time_step in range(ep_len):
+                        sample[key][time_step, loop, :] = \
+                            torch.from_numpy(self.memory[index][key][time_step])
+                    for time_step in range(ep_len, self.sequence_len):
+                        sample[key][time_step, loop, :] = torch.zeros(temp_len)
                 else:
-                    start_ = random.sample(range(0, ep_len - sequence_len), 1)[0]
-                    end_ = start_ + sequence_len
-                    for (time_step, time) in enumerate(range(start_,end_)):
-                        sample[key][time_step, loop, :] = torch.from_numpy(self.memory[index][key][time])
+                    start_ = random.sample(range(0, ep_len - self.sequence_len), 1)[0]
+                    end_ = start_ + self.sequence_len
+                    for (time_step, time) in enumerate(range(start_, end_)):
+                        sample[key][time_step, loop, :] = \
+                            torch.from_numpy(self.memory[index][key][time_step])
         return sample
 
     def recent_ep_sample(self):

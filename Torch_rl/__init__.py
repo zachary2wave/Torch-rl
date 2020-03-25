@@ -12,5 +12,5 @@ from Torch_rl.agent.HIRO import HIRO_Agent as HIRO
 from Torch_rl.model.Network import DenseNet
 from Torch_rl.model.Network import LSTM_Dense
 from Torch_rl.model.Network import CNN_2D_Dense
-
+from Torch_rl.model.Network import CNN_2D_LSTM_Dense
 

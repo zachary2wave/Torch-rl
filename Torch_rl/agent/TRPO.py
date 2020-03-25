@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_policy import Agent_policy_based
 from Torch_rl.common.memory import ReplayMemory
 from copy import deepcopy
 # from Torch_rl.common.distribution import *
@@ -9,8 +9,10 @@ from torch.autograd import Variable
 from gym import spaces
 from Torch_rl.common.util import csv_record
 from Torch_rl.common.util import gae
+from Torch_rl.common.distribution import *
 
-class TRPO_Agent(Agent):
+
+class TRPO_Agent(Agent_policy_based):
     def __init__(self, env, policy_model, value_model,
                  lr=1e-3, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
@@ -28,15 +30,16 @@ class TRPO_Agent(Agent):
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.cliprange = cliprange
-        self.batch_training_round = batch_training_round
-        self.learning_starts = learning_starts
-        if running_step =="synchronization":
-            self.run_step = 1
-        else:
-            self.run_step = running_step
 
-        self.replay_buffer = ReplayMemory(buffer_size, ["value", "neglogp"])
+        self.learning_starts = learning_starts
+        self.batch_training_round = batch_training_round
+        self.run_step = running_step
+        self.sample_training_step = self.batch_training_round * self.run_step
+
+        self.replay_buffer = ReplayMemory(buffer_size, ["value", "logp"])
         self.loss_cal = torch.nn.MSELoss()
+
+        self.dist = make_pdtype(env.action_space, policy_model)
 
         self.policy_model = policy_model
         if value_model == "shared":
@@ -46,159 +49,127 @@ class TRPO_Agent(Agent):
         else:
             self.value_model = value_model
 
-        self.dist = self.make_pdtype(env.action_space, policy_model)
-
-
-        value_model_optim = Adam(self.value_model.parameters(), lr=lr, weight_decay=0.01)
+        policy_model_optim = Adam(self.policy_model.parameters(), lr=lr)
+        value_model_optim = Adam(self.value_model.parameters(), lr=lr, weight_decay=value_regular)
         if decay:
-            self.value_model_optim = torch.optim.lr_scheduler.ExponentialLR(value_model_optim, decay_rate,
+            self.policy_model_optim = torch.optim.lr_scheduler.ExponentialLR(policy_model_optim, decay_rate,
                                                                              last_epoch=-1)
+            self.value_model_optim = torch.optim.lr_scheduler.ExponentialLR(value_model_optim, decay_rate,
+                                                                            last_epoch=-1)
         else:
+            self.policy_model_optim = policy_model_optim
             self.value_model_optim = value_model_optim
 
+        torch.nn.utils.clip_grad_norm_(self.policy_model.parameters(), 1, norm_type=2)
         torch.nn.utils.clip_grad_norm_(self.value_model.parameters(), 1, norm_type=2)
 
+        self.run_policy = deepcopy(self.policy_model)
+        self.run_value = deepcopy(self.value_model)
+
         super(TRPO_Agent, self).__init__(path)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
-        self.writer.add_graph(self.graph_model, input_to_model=example_input)
+        example_input = Variable(torch.rand((100,)+ self.env.observation_space.shape))
+        self.writer.add_graph(self.policy_model, input_to_model=example_input)
         self.forward_step_show_list = []
         self.backward_step_show_list = ["pg_loss", "entropy", "vf_loss"]
         self.forward_ep_show_list = []
         self.backward_ep_show_list = ["pg_loss", "entropy", "vf_loss"]
 
         self.training_round = 0
+        self.training_step = 0
         self.running_step = 0
         self.record_sample = None
+        self.train_ticks = np.tile(np.arange(self.run_step), self.batch_training_round)
 
     def forward(self, observation):
-        observation = observation.astype(np.float32)
+        observation = observation[np.newaxis, :].astype(np.float32)
         observation = torch.from_numpy(observation)
-        outcome = self.policy_model.forward(observation)
-        self.pd = self.dist(outcome)
-        self.action = self.pd.sample()
-        Q = self.value_model.forward(observation)
-        self.Q = Q.data.numpy()
-        return self.action.detach().numpy(), self.Q, {}
+        with torch.no_grad():
+            outcome = self.run_policy.forward(observation)
+            self.pd = self.dist(outcome)
+            self.action = self.pd.sample()
+            self.Q = self.run_value.forward(observation)
+        return self.action.squeeze(0).detach().numpy(), self.Q.squeeze(0).data.numpy(), {}
 
     def backward(self, sample_):
-        sample_["neglogp"] = - self.pd.log_prob(self.action)
-        sample_["value"] = self. Q
+        sample_["logp"] = self.pd.log_prob(self.action)
+        sample_["value"] = self.Q
         self.replay_buffer.push(sample_)
         self.running_step += 1
         """"""""""""""
         "training part"
+        "in each step, we train for batch batch_training_times"
         """"""""""""""
-        if self.step > self.learning_starts and\
-           self.running_step % self.run_step == 0 and\
-           self.training_round == 0 and sample_["tr"] == 1:
-            " sample advantage generate "
-            with torch.no_grad():
-                sample = self.replay_buffer.recent_step_sample(self.running_step)
-                last_value = self.value_model.forward(sample["s_"][-1]).unsqueeze(1)
-                self.record_sample = gae(sample, last_value, self.gamma, self.lam)
-            self.running_step = 0
-        "1 need the sample "
-        "2 training start flag"
-        "3 training round count"
-        "4 training at the end of each ep to get the information"
-        if self.record_sample is not None and \
-           self.step > self.learning_starts and \
-           self.training_round < self.batch_training_round and sample_["tr"] == 1:
-            start = (self.batch_size * self.batch_training_round) % self.record_sample["s"].size()[0]
-            if start+self.batch_size >= self.record_sample["s"].size()[0]:
-                end = self.record_sample["s"].size()[0]
-            else:
-                end = start+self.batch_size
-            index = np.arange(start, end)
-            S = self.record_sample["s"][index].detach()
-            A = self.record_sample["a"][index].detach()
-            old_log = self.record_sample["logp"][index].detach()
-            advs = self.record_sample["advs"][index]
-            value = self.record_sample["value"][index].detach()
-            returns = self.record_sample["return"][index].detach()
+        if self.step > self.learning_starts:
+            if self.running_step % self.run_step == 0 and self.training_step == 0:
+                " sample advantage generate "
+                with torch.no_grad():
+                    sample = self.replay_buffer.recent_step_sample(self.running_step)
+                    last_value = self.value_model.forward(sample["s_"][-1])
+                    self.record_sample = gae(sample, last_value, self.gamma, self.lam)
+                self.running_step = 0
 
-            "TRAIN THE VALUE_MODEL"
-            Q = self.value_model(S)
-            loss = self.loss_cal(Q, advs + returns)
-            self.value_model_optim.zero_grad()
-            loss.backward()
-            self.value_model_optim.step()
+            if self.training_step < self.sample_training_step and self.record_sample is not None:
+                pg_loss_re = 0
+                entropy_re = 0
+                vf_loss_re = 0
+                loss_re = 0
+                for _ in range(self.batch_training_round):
+                    index = self.train_ticks[self.training_step]
+                    S = self.record_sample["s"][index].detach()
+                    A = self.record_sample["a"][index].detach()
+                    old_log = self.record_sample["logp"][index].detach()
+                    advs = self.record_sample["advs"][index].detach()
+                    value = self.record_sample["value"][index].detach()
+                    returns = self.record_sample["return"][index].detach()
+                    # generate Policy gradient loss
+                    outcome = self.run_policy.forward(S)
+                    new_policy = self.dist(outcome)
+                    new_lop = new_policy.log_prob(A)
+                    ratio = torch.exp(new_lop - old_log)
+                    pg_loss1 = advs * ratio
+                    pg_loss2 = advs * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
+                    pg_loss = -.5 * torch.min(pg_loss1, pg_loss2).mean()
+                    # value loss
+                    value_now = self.run_value.forward(S)
+                    value_clip = value + torch.clamp(value_now - value, min=-self.cliprange,
+                                                     max=self.cliprange)  # Clipped value
+                    vf_loss1 = self.loss_cal(value_now, returns)  # Unclipped loss
+                    vf_loss2 = self.loss_cal(value_clip, returns)  # clipped loss
+                    vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
+                    # vf_loss = 0.5 * vf_loss1
+                    # entropy
+                    entropy = new_policy.entropy().mean()
+                    loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+                    # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
+                    # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
 
-            "TRAIN THE POLICY_MODEL"
-            outcome = self.policy_model.forward(S)
-            new_policy = self.dist(outcome)
-            new_lop = new_policy.log_prob(A)
-            ratio = torch.exp(new_lop - old_log)
-            loss = advs * ratio
-            torch.autograd.grad(loss, self.policy_model.parameters())
+                    self.value_model_optim.zero_grad()
+                    loss.backward(retain_graph=True)
+                    self.value_model_optim.step()
 
+                    self.policy_model_optim.zero_grad()
+                    loss.backward()
+                    self.policy_model_optim.step()
 
+                    self.training_step += 1
+                    pg_loss_re += pg_loss.data.numpy()
+                    entropy_re += entropy.data.numpy()
+                    vf_loss_re += vf_loss.data.numpy()
+                    loss_re += loss.data.numpy()
 
-
-
-
-
-
-
-
-            " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-
-            if isinstance(self.env.action_space, spaces.Box):
-                # mu = torch.index_select(outcome, -1, torch.arange(0, self.env.action_space.shape[0]))
-                # std = torch.index_select(outcome, -1,
-                #                          torch.arange(self.env.action_space.shape[0], self.env.action_space.shape[0] * 2))
-                self.pd = self.dist(outcome, 1)
-            else:
-                self.pd = self.dist(outcome)
-            csv_record(self.pd.mean.detach().numpy(), "./")
-            neg_log_pac = - self.pd.log_prob(self.record_sample["a"])
-            entropy = self.pd.entropy().mean()  # Entropy is used to improve exploration by limiting the premature convergence to suboptimal graph.
-
-            value_clip = self.record_sample["value"] + torch.clamp(self.record_sample["value"] - value_now, min=-self.cliprange, max = self.cliprange)
-
-            vf_loss1 = self.loss_cal(value_now, self.record_sample["r"])  # Unclipped loss
-            # Clipped value
-            vf_loss2 = self.loss_cal(value_clip, self.record_sample["r"])
-            vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
-            vf_loss = vf_loss1
-
-            ratio = torch.exp(self.record_sample["neglogp"]-neg_log_pac)
-            # adv = self.record_sample["advs"]
-            pg_loss1 = -self.record_sample["advs"] * ratio
-            pg_loss2 = -self.record_sample["advs"] * torch.clamp(ratio, 1.0 - self.cliprange, 1.0 + self.cliprange)
-            pg_loss = .5 * torch.max(pg_loss1, pg_loss2).mean()
-
-            loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
-
-            self.graph_model_optim.zero_grad()
-            loss.backward(retain_graph=True)
-            self.graph_model_optim.step()
-
-            # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
-            # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
-            self.training_round += 1
-            return loss.data.numpy(), {"pg_loss": pg_loss.data.numpy(),
-                                       "entropy": entropy.data.numpy(),
-                                       "vf_loss": vf_loss.data.numpy()}
-        if self.training_round == self.batch_training_round:
-            print("this round have training finished")
-            self.run_graph_model.load_state_dict(self.graph_model.state_dict())
-            self.training_round = 0
-            self.record_sample = None
-
+                if self.training_step == self.sample_training_step:
+                    print("the" + str(self.episode) + " round have training finished")
+                    self.run_policy.load_state_dict(self.policy_model.state_dict())
+                    self.run_value.load_state_dict(self.value_model.state_dict())
+                    self.training_step = 0
+                    self.record_sample = None
+                return loss_re, {"pg_loss": pg_loss_re, "entropy": entropy_re, "vf_loss": vf_loss_re}
         return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
 
     def load_weights(self, filepath):
-        model = torch.load(filepath+"ppo.pkl")
-        self.graph_model.load_state_dict(model["graph_model"])
-        self.graph_model_optim.load_state_dict(model["graph_model_optim"])
-
+        model = torch.load(filepath + "ppo.pkl")
+        self.policy_model.load_state_dict(model["policy_model"].state_dict())
+        self.value_model.load_state_dict(model["value_model"].state_dict())
 
     def save_weights(self, filepath, overwrite=False):
-        torch.save({"graph_model": self.graph_model,
-                    "graph_model_optim": self.graph_model_optim,
-                    }, filepath + "PPO.pkl")
-
-
-
-    def
+        torch.save({"policy_model": self.policy_model, "value_model": self.value_model}, filepath + "TRPO.pkl")

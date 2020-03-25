@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_value import Agent_value_based
 from Torch_rl.common.memory import ReplayMemory
 from copy import deepcopy
 from Torch_rl.common.distribution import *
@@ -11,7 +11,7 @@ from Torch_rl.common.util import csv_record
 from Torch_rl.common.util import generate_reture,gae
 
 
-class PPO_Agent(Agent):
+class PPO_Agent(Agent_value_based):
     def __init__(self, env, policy_model, value_model,
                  lr=1e-4, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
@@ -82,13 +82,13 @@ class PPO_Agent(Agent):
         self.loss_record = {"pg_loss": [], "entropy": [], "vf_loss": [], "loss": []}
 
     def forward(self, observation):
-        observation = observation.astype(np.float32)
+        observation = observation[np.newaxis, :].astype(np.float32)
         observation = torch.from_numpy(observation)
         outcome = self.policy_model.forward(observation)
         self.pd = self.dist(outcome)
         self.action = self.pd.sample()
-        self.Q = self.value_model.forward(observation)
-        return self.action.detach().numpy(), self.Q.detach().numpy(), {}
+        self.Q = self.value_model.forward(observation).squeeze()
+        return self.action.squeeze(0).detach().numpy(), self.Q.squeeze(0).detach().numpy(), {}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)

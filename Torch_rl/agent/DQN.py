@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from Torch_rl.common.memory import ReplayMemory
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_value import Agent_value_based
 from copy import deepcopy
 from torch.optim import Adam
 from torch import nn
@@ -32,7 +32,17 @@ class Dueling_dqn(nn.Module):
             A = A - torch.mean(A)
         return V - A
 
-class DQN_Agent(Agent):
+class gpu_foward(nn.Module):
+    def __init__(self, model):
+        super(gpu_foward, self).__init__()
+        model.to_gpu()
+        self.model = model
+    def forward(self,obs):
+        obs = obs.cuda()
+        out = self.model(obs)
+        return out
+
+class DQN_Agent(Agent_value_based):
     def __init__(self, env, model, policy,
                  ## hyper-parameter
                  gamma=0.90, lr=1e-3, batch_size=32, buffer_size=50000, learning_starts=1000,
@@ -83,7 +93,7 @@ class DQN_Agent(Agent):
         :param IL_time:    supervised training times
         :param network_kwargs:
         """
-
+        self.gpu = False
         self.env = env
         self.policy = policy
 
@@ -109,7 +119,7 @@ class DQN_Agent(Agent):
         self.replay_buffer = ReplayMemory(buffer_size)
         self.learning = False
         super(DQN_Agent, self).__init__(path)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
         self.writer.add_graph(self.Q_net, input_to_model=example_input)
         self.forward_step_show_list = []
         self.backward_step_show_list =[]
@@ -117,10 +127,10 @@ class DQN_Agent(Agent):
         self.backward_ep_show_list = []
 
     def forward(self, observation):
-        observation = observation.astype(np.float32)
+        observation = observation[np.newaxis, :].astype(np.float32)
         observation = torch.from_numpy(observation)
         Q_value = self.Q_net.forward(observation)
-        Q_value = Q_value.detach().numpy()
+        Q_value = Q_value.cpu().squeeze().detach().numpy()
         if self.policy is not None:
             action = self.policy.select_action(Q_value)
         else:
@@ -131,6 +141,9 @@ class DQN_Agent(Agent):
         self.replay_buffer.push(sample_)
         if self.step > self.learning_starts and self.learning:
             sample = self.replay_buffer.sample(self.batch_size)
+            if self.gpu:
+                for key in sample.keys():
+                    sample[key] = sample[key].cuda()
             assert len(sample["s"]) == self.batch_size
             a = sample["a"].long().unsqueeze(1)
             Q = self.Q_net(sample["s"]).gather(1, a)
@@ -170,13 +183,10 @@ class DQN_Agent(Agent):
                     }, filepath+"DQN.pkl")
 
 
-
-
-
-
-
-
-
+    def cuda(self):
+        self.Q_net = gpu_foward(self.Q_net)
+        self.target_Q_net = deepcopy(self.Q_net)
+        self.gpu = True
 
 
 

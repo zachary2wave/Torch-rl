@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_value import Agent_value_based
 from Torch_rl.common.memory import ReplayMemory
 from copy import deepcopy
 from Torch_rl.common.distribution import *
@@ -12,7 +12,7 @@ from Torch_rl.common.util import generate_reture,gae
 
 
 
-class PPO_Agent(Agent):
+class PPO_Agent(Agent_value_based):
     def __init__(self, env, policy_model, value_model,
                  lr=1e-4, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
@@ -81,14 +81,14 @@ class PPO_Agent(Agent):
         self.train_ticks = np.tile(np.arange(self.run_step), self.batch_training_round)
 
     def forward(self, observation):
-        observation = observation.astype(np.float32)
+        observation = observation[np.newaxis,:].astype(np.float32)
         observation = torch.from_numpy(observation)
         with torch.no_grad():
             outcome = self.run_policy.forward(observation)
             self.pd = self.dist(outcome)
             self.action = self.pd.sample()
             self.Q = self.run_value.forward(observation)
-        return self.action.detach().numpy(), self.Q.data.numpy(), {}
+        return self.action.squeeze(0).detach().numpy(), self.Q.squeeze(0).data.numpy(), {}
 
     def backward(self, sample_):
         sample_["logp"] = self.pd.log_prob(self.action)

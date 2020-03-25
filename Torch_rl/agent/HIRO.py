@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from Torch_rl.common.memory import ReplayMemory
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_value import Agent_value_based
 from copy import deepcopy
 from torch.optim import Adam
 from torch import nn
@@ -11,7 +11,7 @@ from torch.autograd import Variable
 import gym.spaces as Space
 from Torch_rl.common.Policy_for_DQN import BoltzmannQPolicy
 
-class HIRO_Agent(Agent):
+class HIRO_Agent(Agent_value_based):
     def __init__(self, env,
                  H_policy, H_model, L_policy, L_model,
                  goal = Space.Box(low=-1, high=1, shape=(1,), dtype=np.float32),

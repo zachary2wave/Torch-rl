@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from Torch_rl.common.memory import ReplayMemory
-from Torch_rl.agent.core import Agent
+from Torch_rl.agent.core_value import Agent_value_based
 from copy import deepcopy
 from torch.optim import Adam
 from torch import nn
@@ -20,7 +20,21 @@ class actor_critic(nn.Module):
         Q = self.critic(input)
         return Q
 
-class DDPG_Agent(Agent):
+
+class gpu_foward(nn.Module):
+    def __init__(self, model):
+        super(gpu_foward, self).__init__()
+        model.to_gpu()
+        self.model = model
+
+    def forward(self, obs):
+        obs = obs.cuda()
+        out = self.model(obs)
+        return out
+
+
+
+class DDPG_Agent(Agent_value_based):
     def __init__(self, env, actor_model, critic_model,
                  actor_lr=1e-4, critic_lr=1e-3,
                  actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
@@ -32,6 +46,7 @@ class DDPG_Agent(Agent):
                  ##
                  path=None):
 
+        self.gpu = False
         self.env = env
 
         self.gamma = gamma
@@ -70,11 +85,11 @@ class DDPG_Agent(Agent):
         self.backward_ep_show_list = []
 
     def forward(self, observation):
-        observation = observation.astype(np.float32)
+        observation = observation[np.newaxis, :].astype(np.float32)
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
         action = torch.normal(action, torch.ones_like(action))
-        Q = self.critic(torch.cat((observation, action),axis=0)).detach().numpy()
+        Q = self.critic(torch.cat((observation, action), dim=1)).squeeze().detach().numpy()
         action = action.data.numpy()
         return action, Q, {}
 
@@ -82,6 +97,9 @@ class DDPG_Agent(Agent):
         self.replay_buffer.push(sample_)
         if self.step > self.learning_starts and self.learning:
             sample = self.replay_buffer.sample(self.batch_size)
+            if self.gpu:
+                for key in sample.keys():
+                    sample[key] = sample[key].cuda()
             assert len(sample["s"]) == self.batch_size
             "update the critic "
             if self.step % self.critic_training_freq == 0:
@@ -135,5 +153,11 @@ class DDPG_Agent(Agent):
                     "actor_optim": self.actor_optim, "critic_optim": self.critic_optim
                     }, filepath + "DDPG.pkl")
 
+    def cuda(self):
+        self.actor = gpu_foward(self.actor)
+        self.critic = gpu_foward(self.critic)
+        self.target_actor = deepcopy(self.actor)
+        self.target_critic = deepcopy(self.critic)
+        self.gpu = True
 
 

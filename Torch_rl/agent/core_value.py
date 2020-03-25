@@ -6,7 +6,7 @@ from Torch_rl.common.logger import CSVOutputFormat
 import torch
 
 
-class Agent(ABC):
+class Agent_value_based(ABC):
     """
     所有算法的父类
     Abstract base class for all implemented agents.
@@ -35,7 +35,7 @@ class Agent(ABC):
         self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
         loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]
         self.writer = loggerCEN.writer
-
+        self.path = path
 
     def imitation_learning(self):
         pass
@@ -95,7 +95,7 @@ class Agent(ABC):
                 # print(a)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
-                s = s_
+                s = deepcopy(s_)
                 loss, info_backward = self.backward(sample)
                 if render:
                     self.env.render()
@@ -151,6 +151,11 @@ class Agent(ABC):
                                 logger.record_tabular(str(flag) + "." + key, ep_show[key])
                                 flag += 1
                         logger.dump_tabular()
+            if np.mean(ep_r)>now_best_reward:
+                self.save_weights(self.path)
+                print("the best mean ep reward is ", np.mean(ep_r), "the weight is saved")
+                now_best_reward = np.mean(ep_r)
+
 
     def forward(self, observation):
         """Takes the an observation from the environment and returns the action to be taken next.
@@ -193,6 +198,13 @@ class Agent(ABC):
             overwrite (boolean): If `False` and `filepath` already exists, raises an error.
         """
         raise NotImplementedError()
+
+    def cuda(self):
+        """
+        use the cuda
+        """
+        raise NotImplementedError()
+
 
     def Imitation_Learning(self, step_time, data=None, policy=None, verbose=2):
         '''
