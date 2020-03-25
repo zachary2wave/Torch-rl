@@ -45,7 +45,7 @@ class Agent_policy_based(ABC):
     def imitation_learning(self):
         pass
 
-    def train(self, max_step=None, max_ep_cycle=2000, verbose=2, learning_start = 1000, render=False, record_ep_inter=None):
+    def train(self, max_step=None, max_ep_cycle=2000, verbose=2, learning_start=1000, render=False, record_ep_inter=None):
         self.learning = True
         print("the train phase ........")
         self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, learning_start=learning_start, render=render,
@@ -60,7 +60,7 @@ class Agent_policy_based(ABC):
         self.interact(max_step=max_step, max_ep_cycle=max_ep_cycle, render=render,
                  verbose=verbose, record_ep_inter=record_ep_inter)
 
-    def interact(self, max_step=50000, max_ep_cycle=2000, train_rollout=10,
+    def interact(self, max_step=50000, max_ep_cycle=2000, train_rollout=10,learning_start=1000,
                  render = False, verbose=1, record_ep_inter=None):
         '''
         :param max_step:
@@ -81,31 +81,28 @@ class Agent_policy_based(ABC):
         rollout = 0
         now_best_reward = -np.inf
 
-
         self.dist = make_pdtype(self.env.action_space, self.policy)
         sample_generate = self.runner(self.sample_rollout, self.sample_ep, max_ep_cycle, record_ep_inter)
         while self.step < max_step:
             sample = next(sample_generate)
-
+            record_sample = gae(sample["buffer"], sample["last_Q"], self.gamma, self.lam)
             rollout += 1
 
-            if self.step > self.learning_starts:
+            if self.step > learning_start:
                 ep_show = {}
                 if self.backward_ep_show_list:
                     for key in self.backward_ep_show_list:
                         ep_show[key] = 0
                 rollout_loss = 0
                 for time in range(train_rollout):
-                    loss, other_infor = self.update(sample)
+                    loss, other_infor = self.update(record_sample)
                     if verbose == 1:
-                        logger.record_tabular("1.steps", self.step)
-                        logger.record_tabular("2.episodes", self.episode)
-                        logger.record_tabular("3.rollour", self.episode)
-                        logger.record_tabular("4.loss", loss)
-                        flag = 5
+                        logger.record_tabular("1.train_rollout", time)
+                        logger.record_tabular("2.loss", loss)
+                        flag = 3
                         if self.backward_step_show_list:
                             for key in self.backward_step_show_list:
-                                logger.record_tabular(str(flag) + key, other_infor[key])
+                                logger.record_tabular(str(flag) +"."+ key, other_infor[key])
                                 flag += 1
                         logger.dump_tabular()
                     rollout_loss += loss
@@ -119,7 +116,7 @@ class Agent_policy_based(ABC):
                     logger.record_tabular("04.rollout_loss", rollout_loss)
                     # logger.record_tabular("05.episode_loss_per_step", rollout_loss / samole["step_used"])
                     # logger.record_tabular("06.episode_Q_value", sample["ep_Q_value"])
-                    logger.record_tabular("07.episode_Q_value_per_step", np.mean(sample["ep_Q_value"]))
+                    logger.record_tabular("07.episode_Q_value_per_ep", np.mean(sample["ep_Q_value"]))
                     logger.record_tabular("08.mean_ep_step_used", np.mean(sample["ep_step_used"]))
                     flag = 10
                     if self.backward_ep_show_list:
@@ -141,10 +138,14 @@ class Agent_policy_based(ABC):
         ep_reward, ep_Q_value, ep_step_used = [], [], []
         ep_r, ep_q, ep_cycle = 0, 0, 0
         while True:
-            outcome = self.policy.forward(s)
+            s = s[np.newaxis, :].astype(np.float32)
+            s = torch.from_numpy(s)
+            with torch.no_grad():
+                outcome = self.policy.forward(s)
+                Q = self.value.forward(s)
             pd = self.dist(outcome)
             a = pd.sample()
-            Q = self.value.forward(s)
+
             s_, r, done, info = self.env.step(a)
             if self.render:
                 self.env.render()
@@ -155,9 +156,14 @@ class Agent_policy_based(ABC):
 
             logp = pd.log_prob(a)
             sample_ = {
-                "s": s, "a": a, "r": r, "tr": done,
+                "s": s,
+                "a": a,
+                "r": torch.tensor([r]),
+                "tr": torch.tensor([int(done)]),
+                "s_":torch.from_numpy(s_),
                 "logp": logp, "value": Q}
             buffer.push(sample_)
+            s = deepcopy(s_)
 
             if record_ep_inter is not None:
                 if self.episode % record_ep_inter == 0:
@@ -166,41 +172,57 @@ class Agent_policy_based(ABC):
                     self.csvwritter.writekvs(kvs)
 
             if done:
-                last_Q = self.value.forward(s_)
-                record_sample = gae(buffer.memory, last_Q, self.gamma, self.lam)
-
+                s = self.env.reset()
                 self.episode += 1
-
                 ep_reward.append(ep_r)
                 ep_Q_value.append(ep_q)
                 ep_step_used.append(ep_cycle)
                 ep_r, ep_q, ep_cycle = 0, 0, 0
 
             if sample_step is not None:
-                if self.step > 0 and self.step % sample_step:
-                    print("sample for" + str(sample_step) + " steps, ", len(ep_reward), "episode",
-                          "and the mean reward per step is",  np.mean(buffer.memory["r"]))
-                    yield {"buffer": record_sample,
+                if self.step > 0 and self.step % sample_step==0:
+                    s_ = torch.from_numpy(s_.astype(np.float32))
+                    with torch.no_grad():
+                        last_Q = self.value.forward(s_)
+                    print("now is we have sampled for :", self.step , "and" , self.episode,"\n",
+                          "this round have sampled for " + str(sample_step) + " steps, ", len(ep_reward), "episode",
+                          "and the mean reward per step is",  np.mean(buffer.memory["r"]),
+                          "the mean ep reward is ", np.mean(ep_reward))
+                    yield {"buffer": buffer.memory,
                            "ep_reward": ep_reward,
                            "ep_Q_value": ep_Q_value,
                            "ep_step_used": ep_step_used,
                            "ep_used": len(ep_reward),
-                           "step_used": sample_step
+                           "step_used": sample_step,
+                           "last_Q" : last_Q
                            }
                     ep_reward, ep_Q_value = [], []
+                    if sample_step is not None:
+                        buffer = ReplayMemory(sample_step, ["value", "logp"])
+                    else:
+                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp"])
 
             else:
-                if self.step > 0 and self.episode % sample_ep:
-                    print("sample for" + str(len(buffer.memory["tr"])) + "step, ",
-                          len(ep_reward), "episode and the mean reward per step is",  np.mean(buffer.memory["r"]))
-                    yield {"buffer": record_sample,
+                if self.step > 0 and self.episode % sample_ep==0:
+                    s_ = torch.from_numpy(s_.astype(np.float32))
+                    last_Q = self.value.forward(s_)
+                    print("now is we have sampled for :", self.step , "and" , self.episode,"\n",
+                          "this round have sampled for " + str(sample_step) + " steps, ", len(ep_reward), "episode",
+                          "and the mean reward per step is",  np.mean(buffer.memory["r"]),
+                          "the mean ep reward is ", np.mean(ep_reward))
+                    yield {"buffer": buffer.memory,
                            "ep_reward": ep_reward,
                            "ep_Q_value": ep_Q_value,
                            "ep_step_used": ep_step_used,
-                           "ep_used":sample_ep,
-                           "step_used": len(buffer.memory["tr"])
+                           "ep_used": sample_ep,
+                           "step_used": len(buffer.memory["tr"]),
+                           "last_Q": last_Q
                            }
                     ep_reward, ep_Q_value = [], []
+                    if sample_step is not None:
+                        buffer = ReplayMemory(sample_step, ["value", "logp"])
+                    else:
+                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp"])
 
 
     def update(self, sample):
