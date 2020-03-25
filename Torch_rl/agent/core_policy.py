@@ -6,7 +6,7 @@ from Torch_rl.common import logger
 from Torch_rl.common.logger import CSVOutputFormat
 from Torch_rl.common.memory import ReplayMemory
 from Torch_rl.common.distribution import *
-from Torch_rl.common.util import gae
+from Torch_rl.common.util import get_gae
 
 
 
@@ -85,7 +85,12 @@ class Agent_policy_based(ABC):
         sample_generate = self.runner(self.sample_rollout, self.sample_ep, max_ep_cycle, record_ep_inter)
         while self.step < max_step:
             sample = next(sample_generate)
-            record_sample = gae(sample["buffer"], sample["last_Q"], self.gamma, self.lam)
+
+            returns, advants = get_gae(sample["buffer"]["r"], sample["buffer"]["tr"], sample["buffer"]["value"], self.gamma, self.lam)
+            # record_sample = gae(sample["buffer"], sample["last_Q"], self.gamma, self.lam)
+            record_sample = sample["buffer"]
+            record_sample["advs"] = advants
+            record_sample["return"] = returns
             rollout += 1
 
             if self.step > learning_start:

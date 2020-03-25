@@ -44,3 +44,29 @@ def generate_reture(sample, last_value, gamma, lam):
     mean_ep_reward = torch.sum(sample["r"]) / torch.sum(torch.eq(sample["tr"], 1))
     print("the runner have sampled " + str(running_step) + " data and the mean_ep_reward is ", mean_ep_reward)
     return sample
+
+
+
+def get_gae(rewards, masks, values, gamma, lamda):
+    rewards = torch.Tensor(rewards)
+    masks = torch.Tensor(masks)
+    returns = torch.zeros_like(rewards)
+    advants = torch.zeros_like(rewards)
+
+    running_returns = 0
+    previous_value = 0
+    running_advants = 0
+
+    for t in reversed(range(0, len(rewards))):
+        running_returns = rewards[t] + gamma * running_returns * masks[t]
+        running_tderror = rewards[t] + gamma * previous_value * masks[t] - \
+                    values[t]
+        running_advants = running_tderror + gamma * lamda * \
+                          running_advants * masks[t]
+
+        returns[t] = running_returns
+        previous_value = values[t]
+        advants[t] = running_advants
+
+    advants = (advants - advants.mean()) / advants.std()
+    return returns, advants
