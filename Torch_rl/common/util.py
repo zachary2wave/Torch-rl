@@ -58,11 +58,11 @@ def get_gae(rewards, masks, values, gamma, lamda):
     running_advants = 0
 
     for t in reversed(range(0, len(rewards))):
-        running_returns = rewards[t] + gamma * running_returns * masks[t]
-        running_tderror = rewards[t] + gamma * previous_value * masks[t] - \
+        running_returns = rewards[t] + gamma * running_returns * (1-masks[t])
+        running_tderror = rewards[t] + gamma * previous_value * (1-masks[t]) - \
                     values[t]
         running_advants = running_tderror + gamma * lamda * \
-                          running_advants * masks[t]
+                          running_advants * (1-masks[t])
 
         returns[t] = running_returns
         previous_value = values[t]
