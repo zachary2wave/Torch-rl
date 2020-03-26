@@ -65,8 +65,8 @@ class PPO_Agent(Agent_policy_based):
             self.value_model_decay_optim = torch.optim.lr_scheduler.ExponentialLR(self.value_model_optim, decay_rate,
                                                                              last_epoch=-1)
 
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1, norm_type=2)
-        torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
+        # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1, norm_type=2)
+        # torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
 
         super(PPO_Agent, self).__init__(path)
         example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
@@ -137,21 +137,27 @@ class PPO_Agent(Agent_policy_based):
             entropy = new_policy.entropy().mean()
             loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
 
-            for _ in range(self.value_train_step):
-                self.value_model_optim.zero_grad()
-                loss.backward(retain_graph=True)
-                self.value_model_optim.step()
-
             self.policy_model_optim.zero_grad()
             loss.backward()
             self.policy_model_optim.step()
 
+            for _ in range(self.value_train_step):
+                value_now = self.value.forward(training_s).squeeze()
+                # value loss
+                value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
+                                                     max=self.cliprange)  # Clipped value
+                vf_loss1 = self.loss_cal(value_now, R)  # Unclipped loss
+                vf_loss2 = self.loss_cal(value_clip, R)  # clipped loss
+                vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
+                self.value_model_optim.zero_grad()
+                vf_loss1.backward()
+                self.value_model_optim.step()
             # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
             # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
             loss_re = loss.detach().numpy()
             pgloss_re = pg_loss.detach().numpy()
             enloss_re = entropy.detach().numpy()
-            vfloss_re = vf_loss.detach().numpy()
+            vfloss_re = vf_loss1.detach().numpy()
         return np.sum(loss_re), {"pg_loss": np.sum(pgloss_re),
                                    "entropy": np.sum(enloss_re),
                                    "vf_loss": np.sum(vfloss_re)}
