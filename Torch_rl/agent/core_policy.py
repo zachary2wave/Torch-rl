@@ -267,7 +267,9 @@ class Agent_policy_based(ABC):
         raise NotImplementedError()
 
 
-    def Imitation_Learning(self, step_time, data=None, policy=None, verbose=2):
+    def Imitation_Learning(self, step_time, data=None, policy=None,
+                           buffer_size = 5000, value_training_round = 10, value_training_fre = 2500,
+                           verbose=2,render = False):
         '''
         :param data:  the data is a list, and each element is a dict with 5 keys s,a,r,s_,tr
         sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
@@ -287,18 +289,57 @@ class Agent_policy_based(ABC):
                     logger.dumpkvs()
 
         if policy is not None:
+            buffer = ReplayMemory(buffer_size)
             s = self.env.reset()
-            for time in step_time:
+            loss_BC = 0
+
+            for _ in step_time:
                 self.step += 1
-                a = policy(s)
+                a = policy.generate(s)
                 s_, r, done, info = self.env.step(a)
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
-                loss = self.backward(sample)
-                s = s_
-                if verbose == 1:
-                    logger.record_tabular("steps", self.step)
-                    logger.record_tabular("loss", loss)
-                    logger.dumpkvs()
+                buffer.push(sample)
+                s = s_[:]
+                if self.step > self.learning_starts:
+                    sample_ = buffer.sample(self.batch_size)
+                    loss = self.policy_behavior_clone(sample_)
+                    if self.step % value_training_fre:
+                        record_sample = {}
+                        for key in buffer.keys():
+                            record_sample[key] = buffer[key][-value_training_fre:]
+                        record_sample["value"] = self.value.forward(torch.from_numpy(record_sample["s"]))
+                        returns, advants = get_gae(record_sample["r"], record_sample["tr"], record_sample["value"],
+                                                   self.gamma, self.lam)
+                        record_sample["advs"] = advants
+                        record_sample["return"] = returns
+                        for round_ in range(value_training_round):
+                            loss_value = self.value_pretrain(record_sample, value_training_fre)
+                            print(round_, loss_value)
+
+                    if verbose == 1:
+                        logger.record_tabular("learning_steps", self.step)
+                        logger.record_tabular("loss", loss)
+                        logger.record_tabular("rewrad",r)
+                        logger.dumpkvs()
+                    loss_BC += loss
+                if done:
+                    if verbose == 2:
+                        logger.record_tabular("learning_steps", self.step)
+                        logger.record_tabular("loss", loss_BC)
+                        logger.dumpkvs()
+
+                    s = self.env.reset()
+                    loss_BC = 0
+
+    def policy_behavior_clone(self, sample_):
+        """
+        behavior_clone
+        """
+        # raise NotImplementedError()
+        pass
+
+    def value_pretrain(self, sample_):
+        pass
 
 
 

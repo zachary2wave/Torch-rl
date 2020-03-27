@@ -9,7 +9,7 @@ from torch.optim import Adam
 from torch.autograd import Variable
 from gym import spaces
 from Torch_rl.common.util import csv_record
-from Torch_rl.common.util import gae
+from Torch_rl.common.util import get_gae
 
 class gpu_foward(nn.Module):
     def __init__(self, model):
@@ -171,7 +171,40 @@ class PPO_Agent(Agent_policy_based):
     def save_weights(self, filepath, overwrite=False):
         torch.save({"policy": self.policy,"value": self.value}, filepath + "PPO.pkl")
 
+    def behavior_clone(self, buffer):
+        sample_ = buffer.sample(32)
+        action_label = sample_["a"].squeeze()
+        action_predict = self.policy(sample_["s"].cuda())
+        loss_bc = self.loss_cal(action_label.cuda(), action_predict)
+        loss = loss_bc
+        self.policy_model_optim.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(self.policy.parameters(), 1, norm_type=2)
+        self.policy_model_optim.step()
+        return loss.cpu().detach().numpy()
+
+    def value_pretrain(self, record_sample, new_sample_len):
+        train_times = np.floor(new_sample_len/128)
+        round_loss = 0
+        for io in range(train_times-1):
+            index = list(range(128 * io, 128 * (io + 1)))
+            if self.gpu:
+                predict = torch.from_numpy(np.array(record_sample["s"])[index]).cuda()
+                lable = torch.from_numpy(np.array(record_sample["return"]))[index].cuda()
+            else:
+                perdict = torch.from_numpy(np.array(record_sample["s"])[index])
+                lable = torch.from_numpy(np.array(record_sample["return"]))[index]
+            value_now = self.value.forward(perdict)
+            # value loss
+            vf_loss = self.loss_cal(value_now,lable)  # Unclipped loss
+            self.value_model_optim.zero_grad()
+            vf_loss.backward()
+            self.value_model_optim.step()
+            round_loss += vf_loss.cpu().detach().numpy()
+        return round_loss
+
     def cuda(self):
         self.policy = gpu_foward(self.policy)
         self.value = gpu_foward(self.value)
+        self.loss_cal = self.loss_cal.cuda()
         self.gpu = True
