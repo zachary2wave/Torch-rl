@@ -89,11 +89,11 @@ class Agent_policy_based(ABC):
             returns, advants = get_gae(sample["buffer"]["r"], sample["buffer"]["tr"], sample["buffer"]["value"], self.gamma, self.lam)
             # record_sample = gae(sample["buffer"], sample["last_Q"], self.gamma, self.lam)
             record_sample = sample["buffer"]
-            record_sample["advs"] = advants
-            record_sample["return"] = returns
+            record_sample["advs"] = advants.unsqueeze(1)
+            record_sample["return"] = returns.unsqueeze(1)
             rollout += 1
 
-            if self.step > learning_start:
+            if self.step > learning_start and self.learning:
                 ep_show = {}
                 if self.backward_ep_show_list:
                     for key in self.backward_ep_show_list:
@@ -117,11 +117,15 @@ class Agent_policy_based(ABC):
                 if verbose == 2:
                     logger.record_tabular("01.steps", self.step)
                     logger.record_tabular("02.episodes", self.episode)
-                    logger.record_tabular("03.rollouts", rollout)
-                    logger.record_tabular("04.rollout_loss", rollout_loss)
+                    logger.record_tabular("03.rollouts/num", rollout)
+                    logger.record_tabular("04.rollouts/mean_episode_reward", np.mean(sample["ep_reward"]))
+                    logger.record_tabular("05.rollouts/mean_step_reward", torch.mean(sample["buffer"]["r"]).cpu().detach().numpy())
+                    logger.record_tabular("06.rollouts/loss", rollout_loss)
+                    logger.record_tabular("07.rollouts/episode_Q_value", torch.mean(
+                        torch.tensor(sample["ep_Q_value"])).cpu().detach().numpy())
                     # logger.record_tabular("05.episode_loss_per_step", rollout_loss / samole["step_used"])
                     # logger.record_tabular("06.episode_Q_value", sample["ep_Q_value"])
-                    logger.record_tabular("07.episode_Q_value_per_ep", np.mean(sample["ep_Q_value"]))
+                    # logger.record_tabular("07.episode_Q_value_per_ep", np.mean(sample["ep_Q_value"]))
                     logger.record_tabular("08.mean_ep_step_used", np.mean(sample["ep_step_used"]))
                     flag = 10
                     if self.backward_ep_show_list:
@@ -146,12 +150,12 @@ class Agent_policy_based(ABC):
             s = s[np.newaxis, :].astype(np.float32)
             s = torch.from_numpy(s)
             with torch.no_grad():
-                outcome = self.policy.forward(s)
+                outcome = self.policy.forward(s).squeeze(0)
                 Q = self.value.forward(s)
             pd = self.dist(outcome)
             a = pd.sample()
 
-            s_, r, done, info = self.env.step(a)
+            s_, r, done, info = self.env.step(a.cpu().numpy())
             if self.render:
                 self.env.render()
             ep_r += r
@@ -161,12 +165,13 @@ class Agent_policy_based(ABC):
 
             logp = pd.log_prob(a)
             sample_ = {
-                "s": s,
+                "s": s.squeeze(0),
                 "a": a,
                 "r": torch.tensor([r]),
                 "tr": torch.tensor([int(done)]),
                 "s_":torch.from_numpy(s_),
-                "logp": logp, "value": Q}
+                "logp": logp.unsqueeze(0),
+                "value": Q.squeeze(0)}
             buffer.push(sample_)
             s = deepcopy(s_)
 
@@ -186,9 +191,9 @@ class Agent_policy_based(ABC):
 
             if sample_step is not None:
                 if self.step > 0 and self.step % sample_step==0:
-                    s_ = torch.from_numpy(s_.astype(np.float32))
+                    s_ = torch.from_numpy(s_[np.newaxis,:].astype(np.float32))
                     with torch.no_grad():
-                        last_Q = self.value.forward(s_)
+                        last_Q = self.value.forward(s_).squeeze()
                     print("now is we have sampled for :", self.step , "and" , self.episode,"\n",
                           "this round have sampled for " + str(sample_step) + " steps, ", len(ep_reward), "episode",
                           "and the mean reward per step is",  np.mean(buffer.memory["r"]),
@@ -267,7 +272,7 @@ class Agent_policy_based(ABC):
         raise NotImplementedError()
 
 
-    def Imitation_Learning(self, step_time, data=None, policy=None,
+    def Imitation_Learning(self, step_time, data=None, policy=None,learning_start=1000,
                            buffer_size = 5000, value_training_round = 10, value_training_fre = 2500,
                            verbose=2,render = False):
         '''
@@ -292,21 +297,25 @@ class Agent_policy_based(ABC):
             buffer = ReplayMemory(buffer_size)
             s = self.env.reset()
             loss_BC = 0
-
-            for _ in step_time:
+            ep_step,ep_reward = 0, 0
+            for _ in range(step_time):
                 self.step += 1
-                a = policy.generate(s)
+                ep_step += 1
+                a = policy(self.env)
                 s_, r, done, info = self.env.step(a)
+                ep_reward += r
+                if render:
+                    self.env.render()
                 sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
                 buffer.push(sample)
                 s = s_[:]
-                if self.step > self.learning_starts:
+                if self.step > learning_start:
                     sample_ = buffer.sample(self.batch_size)
                     loss = self.policy_behavior_clone(sample_)
-                    if self.step % value_training_fre:
+                    if self.step % value_training_fre==0:
                         record_sample = {}
-                        for key in buffer.keys():
-                            record_sample[key] = buffer[key][-value_training_fre:]
+                        for key in buffer.memory.keys():
+                            record_sample[key] = np.array(buffer.memory[key]).astype(np.float32)[-value_training_fre:]
                         record_sample["value"] = self.value.forward(torch.from_numpy(record_sample["s"]))
                         returns, advants = get_gae(record_sample["r"], record_sample["tr"], record_sample["value"],
                                                    self.gamma, self.lam)
@@ -325,21 +334,20 @@ class Agent_policy_based(ABC):
                 if done:
                     if verbose == 2:
                         logger.record_tabular("learning_steps", self.step)
-                        logger.record_tabular("loss", loss_BC)
+                        logger.record_tabular("step_used", ep_step)
+                        logger.record_tabular("loss", loss_BC/ep_step)
+                        logger.record_tabular("ep_reward",ep_reward )
                         logger.dumpkvs()
 
                     s = self.env.reset()
                     loss_BC = 0
+                    ep_step,ep_reward = 0, 0
 
     def policy_behavior_clone(self, sample_):
-        """
-        behavior_clone
-        """
-        # raise NotImplementedError()
-        pass
+        raise NotImplementedError()
 
     def value_pretrain(self, sample_):
-        pass
+        raise NotImplementedError()
 
 
 
