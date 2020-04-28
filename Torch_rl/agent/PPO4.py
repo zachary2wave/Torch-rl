@@ -8,17 +8,6 @@ from torch.autograd import Variable
 from Torch_rl.common.memory import ReplayMemory
 
 
-class gpu_foward(nn.Module):
-    def __init__(self, model):
-        super(gpu_foward, self).__init__()
-        model.to_gpu()
-        self.model = model
-    def forward(self,obs):
-        obs = obs.cuda()
-        out = self.model(obs)
-        del obs
-        return out
-
 class PPO_Agent(Agent_policy_based):
     def __init__(self, env, policy_model, value_model,
                  lr=5e-4, ent_coef=0.01, vf_coef=0.5,
@@ -230,7 +219,7 @@ class PPO_Agent(Agent_policy_based):
         return round_loss
 
     def cuda(self):
-        self.policy = gpu_foward(self.policy)
-        self.value = gpu_foward(self.value)
+        self.policy.to_gpu()
+        self.value.to_gpu()
         self.loss_cal = self.loss_cal.cuda()
         self.gpu = True

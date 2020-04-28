@@ -90,7 +90,11 @@ class DenseNet(nn.Module):
         self.layer.append(nn.Sequential(OrderedDict(output_layerlayer)))
         self.linears = nn.ModuleList(self.layer)
 
+        self.gpu = False
+
     def forward(self, x):
+        if self.gpu:
+            x = x.cuda(self.device)
         for layer in self.linears:
             x = layer(x)
         return x
@@ -101,6 +105,8 @@ class DenseNet(nn.Module):
 
     def to_gpu(self, device=None):
         self.linears.cuda(device=device)
+        self.gpu = True
+        self.device = device
 
 
 class LSTM_Dense(nn.Module):
@@ -117,12 +123,20 @@ class LSTM_Dense(nn.Module):
         self.LSTM = nn.LSTM(input_size=input_size,
                             hidden_size=lstm_unit,
                             num_layers=lstm_layer)
+        self.gpu = None
 
-    def init_H_C(self,batch_size):
-        return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
-                Variable(torch.zeros(1, batch_size, self.lstm_unit)))
+
+    def init_H_C(self, batch_size):
+        if self.gpu:
+            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(),
+                    Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda())
+        else:
+            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
+                    Variable(torch.zeros(1, batch_size, self.lstm_unit)))
 
     def forward(self, x, h_state=None):
+        if self.gpu is not None:
+            x = x.cuda(self.gpu)
         if h_state is None:
             h_state = self.init_H_C(x.size()[1])
         x, h_state = self.LSTM(x, h_state)
@@ -133,6 +147,8 @@ class LSTM_Dense(nn.Module):
     def to_gpu(self, device=None):
         self.LSTM.cuda(device=device)
         self.Dense.cuda(device=device)
+        self.gpu = True
+        self.device = device
 
 
 class CNN_2D_Dense(nn.Module):
@@ -163,6 +179,7 @@ class CNN_2D_Dense(nn.Module):
         self.input_dense = self.size_cal(input_size)
         self.Dendse = DenseNet(self.input_dense, output_size, hidden_layer=dense_layer,
                                hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
+        self.gpu = False
 
     def size_cal(self, input_size):
         test_input = torch.rand((1,)+input_size)
@@ -170,6 +187,8 @@ class CNN_2D_Dense(nn.Module):
         return test_out.size(1)*test_out.size(2)*test_out.size(3)
 
     def forward(self, x):
+        if self.gpu:
+            x = x.cuda(self.device)
         x = self.CNN(x)
         x = x.view(x.size(0), -1)
         x = self.Dendse(x)
@@ -178,6 +197,8 @@ class CNN_2D_Dense(nn.Module):
     def to_gpu(self, device=None):
         self.CNN.cuda(device=device)
         self.Dense.cuda(device=device)
+        self.gpu = True
+        self.device = device
 
 class CNN_2D_LSTM_Dense(nn.Module):
     def __init__(self, input_size, output_size,
@@ -215,9 +236,15 @@ class CNN_2D_LSTM_Dense(nn.Module):
         self.Dendse = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
                                hidden_activate=hidden_activate, output_activate=output_activate,BatchNorm=BatchNorm)
 
-    def init_H_C(self,batch_size):
-        return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
-                Variable(torch.zeros(1, batch_size, self.lstm_unit)))
+        self.gpu = False
+
+    def init_H_C(self, batch_size):
+        if self.gpu:
+            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device),
+                    Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device))
+        else:
+            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
+                    Variable(torch.zeros(1, batch_size, self.lstm_unit)))
 
     def size_cal(self, input_size):
         test_input = torch.rand((1,)+input_size)
@@ -225,6 +252,8 @@ class CNN_2D_LSTM_Dense(nn.Module):
         return test_out.size(1)*test_out.size(2)*test_out.size(3)
 
     def forward(self, x, h = None):
+        if self.gpu:
+            x = x.cuda(self.device)
         batch_size = x.size(1)
         squence_size = x.size(0)
         conjection = ()
@@ -244,13 +273,14 @@ class CNN_2D_LSTM_Dense(nn.Module):
         self.CNN.cuda(device=device)
         self.LSTM.cuda(device=device)
         self.Dense.cuda(device=device)
+        self.gpu = True
+        self.device = device
 
 class LSTM_Dense_Hin(nn.Module):
     def __init__(self, input_size, output_size, lstm_unit=64, lstm_layer=1, dense_layer=[64, 64],
                  hidden_activate=nn.ReLU(), output_activate=None,
                  BatchNorm=False):
-        self.gpu = False
-        super(LSTM_Dense, self).__init__()
+        super(LSTM_Dense_Hin, self).__init__()
         self.lstm_unit = lstm_unit
         self.hidden_activate = nn.ReLU()
         self.Dense = DenseNet(lstm_unit, output_size, hidden_layer=dense_layer,
@@ -261,22 +291,26 @@ class LSTM_Dense_Hin(nn.Module):
                             hidden_size=lstm_unit,
                             num_layers=lstm_layer)
         self.h_state = None
+        self.gpu = False
 
     def init_H_C(self, batch_size):
         if self.gpu:
-            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(),
-                    Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda())
+            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device),
+                    Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device))
         else:
             return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
                     Variable(torch.zeros(1, batch_size, self.lstm_unit)))
 
     def forward(self, x):
+        if self.gpu:
+            x = x.cuda(self.device)
+        x = x.unsqueeze(1)
         if self.h_state is None:
             self.h_state = self.init_H_C(x.size(1))
-        x, h_state = self.LSTM(x, self.h_state)
+        x, self.h_state = self.LSTM(x, self.h_state)
         x = self.hidden_activate(x)
         x = self.Dense(x)
-        return x, h_state
+        return x[0]
 
     def reset_h(self):
         self.h_state = None
@@ -285,6 +319,7 @@ class LSTM_Dense_Hin(nn.Module):
         self.LSTM.cuda(device=device)
         self.Dense.to_gpu(device=device)
         self.gpu = True
+        self.device = device
 
 class ConvLSTMCell(nn.Module):
 
@@ -319,6 +354,7 @@ class ConvLSTMCell(nn.Module):
                               bias=self.bias)
 
     def forward(self, input_tensor, cur_state):
+
         h_cur, c_cur = cur_state
 
         combined = torch.cat([input_tensor, h_cur], dim=1)  # concatenate along channel axis
@@ -397,8 +433,12 @@ class ConvLSTM(nn.Module):
                                           bias=self.bias))
 
         self.cell_list = nn.ModuleList(cell_list)
+        self.gpu = False
 
     def forward(self, input_tensor, hidden_state=None):
+        if self.gpu:
+            input_tensor = input_tensor.cuda(self.device)
+            hidden_state = hidden_state.cuda(self.device)
         """
         Parameters
         ----------
@@ -471,6 +511,8 @@ class ConvLSTM(nn.Module):
 
     def to_gpu(self, device=None):
         self.cell_list.cuda(device=device)
+        self.gpu = True
+        self.device = device
 
 
 class GCN(nn.Module):

@@ -33,17 +33,6 @@ class Dueling_dqn(nn.Module):
         return V - A
 
 
-class gpu_foward(nn.Module):
-    def __init__(self, model):
-        super(gpu_foward, self).__init__()
-        model.to_gpu()
-        self.model = model
-    def forward(self,obs):
-        obs = obs.cuda()
-        out = self.model(obs)
-        return out
-
-
 class DRQN_Agent(Agent_value_based):
     def __init__(self, env, model, policy,
                  ## hyper-parameter
@@ -199,7 +188,7 @@ class DRQN_Agent(Agent_value_based):
                     }, filepath+"DQN.pkl")
 
     def cuda(self):
-        self.Q_net = gpu_foward(self.Q_net)
+        self.Q_net.to_gpu()
         self.target_Q_net = deepcopy(self.Q_net)
         self.gpu = True
 
