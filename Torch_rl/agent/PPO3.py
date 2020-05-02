@@ -6,8 +6,6 @@ from Torch_rl.common.distribution import *
 from torch.optim import Adam
 from torch.autograd import Variable
 
-
-
 class PPO_Agent(Agent_policy_based):
     def __init__(self, env, policy_model, value_model,
                  lr=5e-4, ent_coef=0.01, vf_coef=0.5,

@@ -64,8 +64,7 @@ class DDPG_Agent(Agent_value_based):
             self.actor_optim = actor_optim
             self.critic_optim = critic_optim
 
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1, norm_type=2)
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1, norm_type=2)
+
         super(DDPG_Agent, self).__init__(path)
         example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
         self.writer.add_graph(self.actor_critic, input_to_model=example_input)
@@ -80,8 +79,7 @@ class DDPG_Agent(Agent_value_based):
         action = self.actor.forward(observation)
         action = torch.normal(action, torch.ones_like(action))
         Q = self.critic(torch.cat((observation, action), dim=1)).squeeze().detach().numpy()
-        action = action.data.numpy()
-        return action, Q, {}
+        return action.cpu().squeeze(0).detach().numpy(), Q, {}
 
     def backward(self, sample_):
         self.replay_buffer.push(sample_)
@@ -104,6 +102,7 @@ class DDPG_Agent(Agent_value_based):
                 loss = torch.mean(huber_loss(expected_q_values - Q))
                 self.critic_optim.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1, norm_type=2)
                 self.critic_optim.step()
             "training the actor"
             if self.step % self.actor_training_freq == 0:
@@ -112,6 +111,7 @@ class DDPG_Agent(Agent_value_based):
                 Q = -torch.mean(Q)
                 self.actor_optim.zero_grad()
                 Q.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor_critic.parameters(), 1, norm_type=2)
                 self.actor_optim.step()
             if self.step % self.actor_target_network_update_freq == 0:
                 self.target_actor_net_update()

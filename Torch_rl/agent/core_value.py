@@ -75,7 +75,7 @@ class Agent_value_based(ABC):
         ep_reward = []
         ep_Q_value = []
         ep_loss = []
-
+        now_best_reward = -np.inf
         while self.step < max_step:
             s = self.env.reset()
             'reset the ep record'
