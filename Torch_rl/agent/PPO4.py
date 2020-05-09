@@ -83,6 +83,10 @@ class PPO_Agent(Agent_policy_based):
                 "return": sample["return"][ki]
             }
             self.replay_buffer.push(self, sample_)
+        '''
+        train the value part
+        '''
+        vfloss_re = []
         for _ in range(self.value_train_step):
             tarin_value_sample = self.replay_buffer.sample(self.batch_size)
             for key in tarin_value_sample.keys():
@@ -104,10 +108,9 @@ class PPO_Agent(Agent_policy_based):
             vf_loss1.backward()
             self.value_model_optim.step()
 
-        time_round = np.ceil(step_len/self.batch_size)
-        time_left = time_round*self.batch_size-step_len
-        array = list(range(step_len)) +list(range(int(time_left)))
-        loss_re, pgloss_re, enloss_re, vfloss_re = [], [], [], []
+        '''
+        train the policy part
+        '''
 
         for key in sample.keys():
             temp = torch.stack(list(sample[key]), 0).squeeze()
@@ -116,8 +119,23 @@ class PPO_Agent(Agent_policy_based):
             else:
                 sample[key] = temp
 
+        loss_re, pgloss_re, enloss_re = [], [], []
+        if self.lstm_enable:
+            array_index = []
+            tr_index = [index for index in range(step_len) if sample["tr"][index].eq(1)]
+            time_round = len(tr_index)
+            for time in range(len(tr_index)-1):
+                array_index.append(list(range(tr_index[time], tr_index[time+1])))
+        else:
+            time_round = np.ceil(step_len/self.batch_size)
+            time_left = time_round*self.batch_size-step_len
+            array = list(range(step_len)) +list(range(int(time_left)))
+            array_index = []
+            for train_time in range(int(time_round)):
+                array_index.append(range(train_time * self.batch_size, (train_time + 1) * self.batch_size))
+
         for train_time in range(int(time_round)):
-            index = array[train_time*self.batch_size: (train_time+1)*self.batch_size]
+            index =  array_index[train_time]
         # for index in range(step_len):
             training_s = sample["s"][index].detach()
             training_a = sample["a"][index].detach()
@@ -218,8 +236,8 @@ class PPO_Agent(Agent_policy_based):
             round_loss += vf_loss.cpu().detach().numpy()
         return round_loss
 
-    def cuda(self):
-        self.policy.to_gpu()
-        self.value.to_gpu()
-        self.loss_cal = self.loss_cal.cuda()
+    def cuda(self, device=None):
+        self.policy.to_gpu(device)
+        self.value.to_gpu(device)
+        self.loss_cal = self.loss_cal.cuda(device)
         self.gpu = True
