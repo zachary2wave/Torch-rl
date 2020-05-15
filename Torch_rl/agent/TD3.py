@@ -35,16 +35,6 @@ class actor_critic(nn.Module):
         return Q1
 
 
-class gpu_foward(nn.Module):
-    def __init__(self, model):
-        super(gpu_foward, self).__init__()
-        model.to_gpu()
-        self.model = model
-    def forward(self,obs):
-        obs = obs.cuda()
-        out = self.model(obs)
-        return out
-
 
 class TD3_Agent(Agent_value_based):
     def __init__(self, env, actor_model, critic_model,
@@ -175,10 +165,9 @@ class TD3_Agent(Agent_value_based):
                     }, filepath + "TD3.pkl")
 
     def cuda(self):
-        self.actor = gpu_foward(self.actor)
-        self.critic = gpu_foward(self.critic)
+        self.actor.to_gpu()
+        self.critic.to_gpu()
         self.target_actor = deepcopy(self.actor)
         self.target_critic = deepcopy(self.critic)
-
         self.gpu = True
 

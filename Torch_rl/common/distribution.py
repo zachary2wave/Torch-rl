@@ -43,7 +43,7 @@ class Pd(object):
     A particular probability distribution
     """
     def log_prob(self, x):
-        return self.pd.log_prob(x)
+        return torch.sum(self.pd.log_prob(x))
 
     def sample(self):
         return self.pd.sample()

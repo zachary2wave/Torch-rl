@@ -8,7 +8,7 @@ from torch import nn
 import torch.nn.functional as F
 from Torch_rl.common.loss import huber_loss
 from torch.autograd import Variable
-import gym.spaces as Space
+from gym import spaces as Space
 from Torch_rl.common.Policy_for_DQN import BoltzmannQPolicy
 
 class HIRO_Agent(Agent_value_based):

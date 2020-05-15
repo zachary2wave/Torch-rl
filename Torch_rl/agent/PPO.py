@@ -180,11 +180,6 @@ class PPO_Agent(Agent_value_based):
         else:
             return 0, {"pg_loss": 0, "entropy": 0, "vf_loss": 0}
 
-
-
-
-
-
     def load_weights(self, filepath):
         model = torch.load(filepath+"ppo.pkl")
         self.policy_model.load_state_dict(model["graph_model"].state_dict())

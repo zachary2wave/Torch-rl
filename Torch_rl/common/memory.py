@@ -32,12 +32,14 @@ class ReplayMemory(Memory):
 
     def push(self, sample):
         """Saves a transition."""
-        for key in self.memory.keys():
+        for key in sample.keys():
             self.memory[key].append(sample[key])
         self.position = (self.position + 1) % self.capacity
     def sample(self, batch_size):
         sample_index = random.sample(range(len(self.memory["s"])), batch_size)
-        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
+        sample = {}
+        for key in self.memory.keys():
+            sample[key] = []
         for key in self.memory.keys():
             for index in sample_index:
                 sample[key].append(self.memory[key][index])
@@ -46,7 +48,9 @@ class ReplayMemory(Memory):
         return sample
 
     def recent_step_sample(self, batch_size):
-        sample = {"s": [], "a": [], "s_": [], "r": [], "tr": []}
+        sample = {}
+        for key in self.memory.keys():
+            sample[key] = []
         for key in self.memory.keys():
             sample[key] = self.memory[key][-batch_size:]
             sample[key] = np.array(sample[key], dtype=np.float32)

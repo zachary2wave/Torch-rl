@@ -9,15 +9,19 @@ from Torch_rl.common.loss import huber_loss
 from torch.autograd import Variable
 
 class actor_critic(nn.Module):
-    def __init__(self, actor, critic):
+    def __init__(self, actor, critic, GCN_enable):
         super(actor_critic, self).__init__()
         self.actor = actor
         self.critic = critic
+        self.GCN_enable = GCN_enable
 
     def forward(self, obs):
         a = self.actor(obs)
-        input = torch.cat((obs, a), axis=-1)
-        Q = self.critic(input)
+        if self.GCN_enable:
+            Q = self.critic(obs, a)
+        else:
+            input = torch.cat((obs, a), axis=-1)
+            Q = self.critic(input)
         return Q
 
 
@@ -25,7 +29,7 @@ class DDPG_Agent(Agent_value_based):
     def __init__(self, env, actor_model, critic_model,
                  actor_lr=1e-4, critic_lr=1e-3,
                  actor_target_network_update_freq=1000, critic_target_network_update_freq=1000,
-                 actor_training_freq=1, critic_training_freq=1,
+                 actor_training_freq=1, critic_training_freq=1, sperate_critic = False,
                  ## hyper-parameter
                  gamma=0.99, batch_size=32, buffer_size=50000, learning_starts=1000,
                  ## lr_decay
@@ -35,7 +39,7 @@ class DDPG_Agent(Agent_value_based):
 
         self.gpu = False
         self.env = env
-
+        self.sperate_critic = sperate_critic
         self.gamma = gamma
         self.batch_size = batch_size
         self.learning_starts = learning_starts
@@ -50,7 +54,7 @@ class DDPG_Agent(Agent_value_based):
         self.target_actor = deepcopy(actor_model)
         self.target_critic = deepcopy(critic_model)
 
-        self.actor_critic = actor_critic(self.actor, self.critic)
+        self.actor_critic = actor_critic(self.actor, self.critic, self.GCN)
 
         actor_optim = Adam(self.actor.parameters(), lr=actor_lr)
         critic_optim = Adam(self.critic.parameters(), lr=critic_lr, weight_decay=critic_l2_reg)
@@ -62,8 +66,8 @@ class DDPG_Agent(Agent_value_based):
             self.critic_optim = critic_optim
 
         super(DDPG_Agent, self).__init__(path)
-        example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
-        self.writer.add_graph(self.actor_critic, input_to_model=example_input)
+        #example_input = Variable(torch.rand(100, self.env.observation_space.shape[0]))
+        #self.writer.add_graph(self.actor_critic, input_to_model=example_input)
         self.forward_step_show_list = []
         self.backward_step_show_list =[]
         self.forward_ep_show_list = []
@@ -74,7 +78,10 @@ class DDPG_Agent(Agent_value_based):
         observation = torch.from_numpy(observation)
         action = self.actor.forward(observation)
         action = torch.normal(action, torch.ones_like(action))
-        Q = self.critic(torch.cat((observation, action), dim=1)).squeeze().detach().numpy()
+        if self.sperate_critic:
+            Q = self.critic.forward(observation, action).squeeze().detach().numpy()
+        else:
+            Q = self.critic(torch.cat((observation, action), dim=1)).squeeze().detach().numpy()
         return action.cpu().squeeze(0).detach().numpy(), Q, {}
 
     def backward(self, sample_):
@@ -87,11 +94,17 @@ class DDPG_Agent(Agent_value_based):
             assert len(sample["s"]) == self.batch_size
             "update the critic "
             if self.step % self.critic_training_freq == 0:
-                input = torch.cat((sample["s"], sample["a"]), -1)
-                Q = self.critic(input)
+                if self.sperate_critic:
+                    Q = self.critic.forward(sample["s"], sample["a"])
+                else:
+                    input = torch.cat((sample["s"], sample["a"]), -1)
+                    Q = self.critic.forward(input)
                 target_a = self.target_actor(sample["s_"])
-                target_input = torch.cat((sample["s_"], target_a), -1)
-                targetQ = self.target_critic(target_input)
+                if self.sperate_critic:
+                    targetQ = self.target_critic(sample["s_"], target_a)
+                else:
+                    target_input = torch.cat((sample["s_"], target_a), -1)
+                    targetQ = self.target_critic(target_input)
                 targetQ = targetQ.squeeze(1)
                 Q = Q.squeeze(1)
                 expected_q_values = sample["r"] + self.gamma * targetQ * (1.0 - sample["tr"])
@@ -102,7 +115,6 @@ class DDPG_Agent(Agent_value_based):
                 self.critic_optim.step()
             "training the actor"
             if self.step % self.actor_training_freq == 0:
-                # Q = self.critic(torch.cat((sample["s"], self.actor(sample["s"])), -1))
                 Q = self.actor_critic.forward(sample["s"])
                 Q = -torch.mean(Q)
                 self.actor_optim.zero_grad()

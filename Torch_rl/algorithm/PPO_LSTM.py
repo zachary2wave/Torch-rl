@@ -5,13 +5,15 @@ from copy import deepcopy
 from Torch_rl.common.distribution import *
 from torch.optim import Adam
 from torch.autograd import Variable
+from Torch_rl.common.memory import ReplayMemory
+
 
 class PPO_Agent(Agent_policy_based):
     def __init__(self, env, policy_model, value_model,
                  lr=5e-4, ent_coef=0.01, vf_coef=0.5,
                  ## hyper-parawmeter
-                 gamma=0.99, lam=0.95, cliprange=0.2, batch_size=64, value_train_round=10,
-                 running_step=2048, running_ep=20, value_regular=0.01,
+                 gamma=0.99, lam=0.95, cliprange=0.2, batch_size=64, value_train_round=200,
+                 running_step=2048, running_ep=20, value_regular=0.01, buffer_size=50000,
                  ## decay
                  decay=False, decay_rate=0.9, lstm_enable=False,
                  ##
@@ -30,6 +32,7 @@ class PPO_Agent(Agent_policy_based):
         self.sample_ep = running_ep
         self.batch_size = batch_size
         self.lstm_enable = lstm_enable
+        self.replay_buffer = ReplayMemory(buffer_size, other_record=["value", "return"])
 
         self.loss_cal = torch.nn.SmoothL1Loss()
 
@@ -55,8 +58,8 @@ class PPO_Agent(Agent_policy_based):
         #torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
 
         super(PPO_Agent, self).__init__(path)
-        example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
-        self.writer.add_graph(self.policy, input_to_model=example_input)
+        #example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
+        #self.writer.add_graph(self.policy, input_to_model=example_input)
 
         self.backward_step_show_list = ["pg_loss", "entropy", "vf_loss"]
         self.backward_ep_show_list = ["pg_loss", "entropy", "vf_loss"]
@@ -69,11 +72,46 @@ class PPO_Agent(Agent_policy_based):
 
     def update(self, sample):
         step_len = len(sample["s"])
+        for ki in range(step_len):
+            sample_ = {
+                "s": sample["s"][ki].cpu().numpy(),
+                "a": sample["a"][ki].cpu().numpy(),
+                "r": sample["r"][ki].cpu().numpy(),
+                "tr": sample["tr"][ki].cpu().numpy(),
+                "s_": sample["s_"][ki].cpu().numpy(),
+                "value": sample["value"][ki].cpu().numpy(),
+                "return": sample["return"][ki].cpu().numpy()
+            }
+            self.replay_buffer.push(sample_)
+        '''
+        train the value part
+        '''
+        vfloss_re = []
+        for _ in range(self.value_train_step):
+            tarin_value_sample = self.replay_buffer.sample(self.batch_size)
+            for key in tarin_value_sample.keys():
+                if self.gpu:
+                    tarin_value_sample[key] = tarin_value_sample[key].cuda()
+                else:
+                    tarin_value_sample[key] = tarin_value_sample[key]
+            old_value = tarin_value_sample["value"]
+            training_s = tarin_value_sample["s"]
+            R = tarin_value_sample["return"].squeeze()
+            value_now = self.value.forward(training_s).squeeze()
+            # value loss
+            value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
+                                                 max=self.cliprange)  # Clipped value
+            vf_loss1 = self.loss_cal(value_now, R)  # Unclipped loss
+            # vf_loss2 = self.loss_cal(value_clip, R)  # clipped loss
+            # vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
+            self.value_model_optim.zero_grad()
+            vf_loss1.backward()
+            self.value_model_optim.step()
+            vfloss_re.append(vf_loss1.cpu().detach().numpy())
 
-        time_round = np.ceil(step_len/self.batch_size)
-        time_left = time_round*self.batch_size-step_len
-        array = list(range(step_len)) +list(range(int(time_left)))
-        loss_re, pgloss_re, enloss_re, vfloss_re = [], [], [], []
+        '''
+        train the policy part
+        '''
 
         for key in sample.keys():
             temp = torch.stack(list(sample[key]), 0).squeeze()
@@ -82,29 +120,31 @@ class PPO_Agent(Agent_policy_based):
             else:
                 sample[key] = temp
 
+        array_index = []
+        if self.lstm_enable:
+            for time in range(step_len):
+                array_index.append([time])
+            "训练前重制"
+            self.policy.reset_h()
+            time_round = step_len
+        else:
+            time_round = np.ceil(step_len / self.batch_size)
+            time_left = time_round * self.batch_size - step_len
+            array = list(range(step_len)) + list(range(int(time_left)))
+            array_index = []
+            for train_time in range(int(time_round)):
+                array_index.append(array[train_time * self.batch_size: (train_time + 1) * self.batch_size])
 
+        loss_re, pgloss_re, enloss_re = [], [], []
         for train_time in range(int(time_round)):
-            index = array[train_time*self.batch_size: (train_time+1)*self.batch_size]
-        # for index in range(step_len):
+            index = array_index[train_time]
             training_s = sample["s"][index].detach()
             training_a = sample["a"][index].detach()
-            training_r = sample["r"][index].detach()
-            R = sample["return"][index].detach()
-            old_value = sample["value"][index].detach()
             old_neglogp = sample["logp"][index].detach()
             advs = sample["advs"][index].detach()
 
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-
-            " the value loss"
-            value_now = self.value.forward(training_s).squeeze()
-            # value loss
-            value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
-                                                 max=self.cliprange)  # Clipped value
-            vf_loss1 = self.loss_cal(value_now, R)  # Unclipped loss
-            vf_loss2 = self.loss_cal(value_clip, R)  # clipped loss
-            vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
 
             #generate Policy gradient loss
             outcome = self.policy.forward(training_s).squeeze()
@@ -121,31 +161,23 @@ class PPO_Agent(Agent_policy_based):
 
             # entropy
             entropy = new_policy.entropy().mean()
-            loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
-
+            # loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+            loss = pg_loss - entropy * self.ent_coef
             self.policy_model_optim.zero_grad()
-            pg_loss.backward()
+            loss.backward()
             self.policy_model_optim.step()
-            for _ in range(self.value_train_step):
-                value_now = self.value.forward(training_s).squeeze()
-                # value loss
-                value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
-                                                     max=self.cliprange)  # Clipped value
-                vf_loss1 = self.loss_cal(value_now, R)  # Unclipped loss
-                vf_loss2 = self.loss_cal(value_clip, R)  # clipped loss
-                vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
-                self.value_model_optim.zero_grad()
-                vf_loss1.backward()
-                self.value_model_optim.step()
             # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
             # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
             loss_re = loss.cpu().detach().numpy()
             pgloss_re.append(pg_loss.cpu().detach().numpy())
             enloss_re.append(entropy.cpu().detach().numpy())
-            vfloss_re.append(vf_loss1.cpu().detach().numpy())
+            if self.lstm_enable:
+                if sample["tr"][index] == 1:
+                    self.policy.reset_h()
         return np.sum(loss_re), {"pg_loss": np.sum(pgloss_re),
                                    "entropy": np.sum(enloss_re),
                                    "vf_loss": np.sum(vfloss_re)}
+
 
     def load_weights(self, filepath):
         model = torch.load(filepath+"/PPO.pkl")
@@ -195,8 +227,8 @@ class PPO_Agent(Agent_policy_based):
             round_loss += vf_loss.cpu().detach().numpy()
         return round_loss
 
-    def cuda(self):
-        self.policy.to_gpu()
-        self.value.to_gpu()
-        self.loss_cal = self.loss_cal.cuda()
+    def cuda(self, device=None):
+        self.policy.to_gpu(device)
+        self.value.to_gpu(device)
+        self.loss_cal = self.loss_cal.cuda(device)
         self.gpu = True
