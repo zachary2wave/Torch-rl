@@ -31,6 +31,7 @@ class Agent_value_based(ABC):
         configlist = ["stdout", "log", 'tensorboard', "csv"]
         if path is None:
             path = "./"
+        configlist = ["stdout", "log", 'tensorboard', "csv"]
         logger.configure(path, configlist)
         self.csvwritter = CSVOutputFormat(path+"record_trajectory.csv")
         loggerCEN = logger.get_current().output_formats[configlist.index('tensorboard')]

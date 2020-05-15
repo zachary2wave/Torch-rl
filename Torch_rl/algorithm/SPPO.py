@@ -58,8 +58,8 @@ class PPO_Agent(Agent_policy_based):
         #torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
 
         super(PPO_Agent, self).__init__(path)
-        example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
-        self.writer.add_graph(self.policy, input_to_model=example_input)
+        #example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
+        #self.writer.add_graph(self.policy, input_to_model=example_input)
 
         self.backward_step_show_list = ["pg_loss", "entropy", "vf_loss"]
         self.backward_ep_show_list = ["pg_loss", "entropy", "vf_loss"]
@@ -74,15 +74,15 @@ class PPO_Agent(Agent_policy_based):
         step_len = len(sample["s"])
         for ki in range(step_len):
             sample_ = {
-                "s": sample["s"][ki],
-                "a": sample["a"][ki],
-                "r": sample["r"][ki],
-                "tr": sample["tr"][ki],
-                "s_": sample["s_"][ki],
-                "value": sample["value"][ki],
-                "return": sample["return"][ki]
+                "s": sample["s"][ki].cpu().numpy(),
+                "a": sample["a"][ki].cpu().numpy(),
+                "r": sample["r"][ki].cpu().numpy(),
+                "tr": sample["tr"][ki].cpu().numpy(),
+                "s_": sample["s_"][ki].cpu().numpy(),
+                "value": sample["value"][ki].cpu().numpy(),
+                "return": sample["return"][ki].cpu().numpy()
             }
-            self.replay_buffer.push(self, sample_)
+            self.replay_buffer.push(sample_)
         '''
         train the value part
         '''
@@ -107,6 +107,7 @@ class PPO_Agent(Agent_policy_based):
             self.value_model_optim.zero_grad()
             vf_loss1.backward()
             self.value_model_optim.step()
+            vfloss_re.append(vf_loss1.cpu().detach().numpy())
 
         '''
         train the policy part
@@ -119,43 +120,25 @@ class PPO_Agent(Agent_policy_based):
             else:
                 sample[key] = temp
 
-        loss_re, pgloss_re, enloss_re = [], [], []
-        if self.lstm_enable:
-            array_index = []
-            tr_index = [index for index in range(step_len) if sample["tr"][index].eq(1)]
-            time_round = len(tr_index)
-            for time in range(len(tr_index)-1):
-                array_index.append(list(range(tr_index[time], tr_index[time+1])))
-        else:
-            time_round = np.ceil(step_len/self.batch_size)
-            time_left = time_round*self.batch_size-step_len
-            array = list(range(step_len)) +list(range(int(time_left)))
-            array_index = []
-            for train_time in range(int(time_round)):
-                array_index.append(range(train_time * self.batch_size, (train_time + 1) * self.batch_size))
-
+        array_index = []
+        time_round = np.ceil(step_len / self.batch_size)
+        time_left = time_round * self.batch_size - step_len
+        array = list(range(step_len)) + list(range(int(time_left)))
+        array_index = []
         for train_time in range(int(time_round)):
-            index =  array_index[train_time]
+            array_index.append(array[train_time * self.batch_size: (train_time + 1) * self.batch_size])
+
+        loss_re, pgloss_re, enloss_re = [], [], []
+        for train_time in range(int(time_round)):
+            index = array_index[train_time]
         # for index in range(step_len):
             training_s = sample["s"][index].detach()
             training_a = sample["a"][index].detach()
-            training_r = sample["r"][index].detach()
-            R = sample["return"][index].detach()
-            old_value = sample["value"][index].detach()
             old_neglogp = sample["logp"][index].detach()
             advs = sample["advs"][index].detach()
 
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
-
-            " the value loss"
-            value_now = self.value.forward(training_s).squeeze()
-            # value loss
-            value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
-                                                 max=self.cliprange)  # Clipped value
-            vf_loss1 = self.loss_cal(value_now, R)  # Unclipped loss
-            vf_loss2 = self.loss_cal(value_clip, R)  # clipped loss
-            vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
 
             #generate Policy gradient loss
             outcome = self.policy.forward(training_s).squeeze()
@@ -172,17 +155,17 @@ class PPO_Agent(Agent_policy_based):
 
             # entropy
             entropy = new_policy.entropy().mean()
-            loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
-
+            # loss = pg_loss - entropy * self.ent_coef + vf_loss * self.vf_coef
+            loss = pg_loss - entropy * self.ent_coef
             self.policy_model_optim.zero_grad()
-            pg_loss.backward()
+            loss.backward()
             self.policy_model_optim.step()
             # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
             # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
             loss_re = loss.cpu().detach().numpy()
             pgloss_re.append(pg_loss.cpu().detach().numpy())
             enloss_re.append(entropy.cpu().detach().numpy())
-            vfloss_re.append(vf_loss1.cpu().detach().numpy())
+
         return np.sum(loss_re), {"pg_loss": np.sum(pgloss_re),
                                    "entropy": np.sum(enloss_re),
                                    "vf_loss": np.sum(vfloss_re)}
