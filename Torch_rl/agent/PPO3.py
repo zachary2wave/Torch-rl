@@ -76,7 +76,7 @@ class PPO_Agent(Agent_policy_based):
         loss_re, pgloss_re, enloss_re, vfloss_re = [], [], [], []
 
         for key in sample.keys():
-            temp = torch.stack(list(sample[key]), 0).squeeze()
+            temp = torch.stack(list(sample[key]), 0)
             if self.gpu:
                 sample[key] = temp.cuda()
             else:
@@ -98,7 +98,7 @@ class PPO_Agent(Agent_policy_based):
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
 
             " the value loss"
-            value_now = self.value.forward(training_s).squeeze()
+            value_now = self.value.forward(training_s)
             # value loss
             value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
                                                  max=self.cliprange)  # Clipped value
@@ -107,11 +107,7 @@ class PPO_Agent(Agent_policy_based):
             vf_loss = .5 * torch.max(vf_loss1, vf_loss2)
 
             #generate Policy gradient loss
-            outcome = self.policy.forward(training_s).squeeze()
-            # new_neg_lop = torch.empty(size=(self.batch_size,))
-            # for time in range(self.batch_size):
-            #     new_policy = self.dist(outcome[time])
-            #     new_neg_lop[time] = new_policy.log_prob(training_a[time])
+            outcome = self.policy.forward(training_s)
             new_policy = self.dist(outcome)
             new_neg_lop = new_policy.log_prob(training_a)
             ratio = torch.exp(new_neg_lop - old_neglogp)
@@ -127,7 +123,7 @@ class PPO_Agent(Agent_policy_based):
             pg_loss.backward()
             self.policy_model_optim.step()
             for _ in range(self.value_train_step):
-                value_now = self.value.forward(training_s).squeeze()
+                value_now = self.value.forward(training_s)
                 # value loss
                 value_clip = old_value + torch.clamp(old_value - value_now, min=-self.cliprange,
                                                      max=self.cliprange)  # Clipped value
