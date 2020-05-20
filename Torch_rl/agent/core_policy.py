@@ -152,10 +152,10 @@ class Agent_policy_based(ABC):
         ep_reward, ep_Q_value, ep_step_used = [], [], []
         ep_r, ep_q, ep_cycle = 0, 0, 0
         while True:
-            s = s[np.newaxis, :].astype(np.float32)
-            s = torch.from_numpy(s)
+            # s = s[np.newaxis, :].astype(np.float32)
+            s = torch.from_numpy(s.astype(np.float32))
             with torch.no_grad():
-                outcome = self.policy.forward(s).squeeze(0)
+                outcome = self.policy.forward(s)
                 Q = self.value.forward(s)
             pd = self.dist(outcome)
             a = pd.sample()
@@ -170,13 +170,13 @@ class Agent_policy_based(ABC):
 
             logp = pd.log_prob(a)
             sample_ = {
-                "s": s.squeeze(0),
+                "s": s,
                 "a": a,
                 "r": torch.tensor(np.array([r]).astype(np.float32)),
                 "tr": torch.tensor([int(done)]),
                 "s_":torch.from_numpy(s_),
                 "logp": logp.unsqueeze(0),
-                "value": Q.squeeze(0)}
+                "value": Q}
             buffer.push(sample_)
             s = deepcopy(s_)
 
