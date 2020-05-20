@@ -175,7 +175,7 @@ class Agent_policy_based(ABC):
                 "r": torch.tensor(np.array([r]).astype(np.float32)),
                 "tr": torch.tensor([int(done)]),
                 "s_":torch.from_numpy(s_),
-                "logp": logp.unsqueeze(0),
+                "logp": logp,
                 "value": Q}
             buffer.push(sample_)
             s = deepcopy(s_)
