@@ -43,8 +43,10 @@ class Pd(object):
     A particular probability distribution
     """
     def log_prob(self, x):
-        return torch.sum(self.pd.log_prob(x),dim=1)
-
+        if len(x.shape)>1:
+            return torch.sum(self.pd.log_prob(x),dim=-1,keepdim=True)
+        else:
+            return self.pd.log_prob(x)
     def sample(self):
         return self.pd.sample()
 
