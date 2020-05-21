@@ -125,6 +125,7 @@ class Agent_policy_based(ABC):
                         for key in self.backward_ep_show_list:
                             ep_show[key] += other_infor[key]
                 if verbose == 2:
+                    logger.record_tabular("steps",self.step)
                     logger.record_tabular("06.rollouts/loss", rollout_loss)
                     logger.record_tabular("07.rollouts/episode_Q_value", torch.mean(
                         torch.tensor(sample["ep_Q_value"])).cpu().detach().numpy())
