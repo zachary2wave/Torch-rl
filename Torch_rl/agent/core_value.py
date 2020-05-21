@@ -132,7 +132,7 @@ class Agent_value_based(ABC):
                     ep_loss.append(ep_l)
                     mean_100ep_reward = round(np.mean(ep_reward[-101:-1]), 1)
                     if verbose == 2 and self.step > self.learning_starts:
-                        logger.record_tabular("01.steps", self.step)
+                        logger.record_tabular("steps", self.step)
                         logger.record_tabular("02.episodes", self.episode)
                         logger.record_tabular("03.episode_reward", ep_reward[-1])
                         # logger.record_tabular("04.episode_reward_per_step", ep_reward[-1] / ep_cycle)
