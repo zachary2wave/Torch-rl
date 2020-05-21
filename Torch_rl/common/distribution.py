@@ -31,8 +31,8 @@ class DiagGaussianPd_type():
             self.mean = output
             self.logstd = torch.ones_like(output)
         elif self.output_layer == self.shape*2:
-            self.mean = torch.index_select(output, -1, torch.arange(0, self.shape))
-            self.logstd = torch.index_select(output, -1, torch.arange(self.shape, self.shape*2))
+            self.mean = torch.index_select(output.cpu(), -1, torch.arange(0, self.shape))
+            self.logstd = torch.index_select(output.cpu(), -1, torch.arange(self.shape, self.shape*2))
         self.std = torch.exp(self.logstd)
         return DiagGaussianPd(self.mean, self.std)
 
@@ -43,8 +43,10 @@ class Pd(object):
     A particular probability distribution
     """
     def log_prob(self, x):
-        return torch.sum(self.pd.log_prob(x), dim=-1)
-
+        if len(x.shape)>1:
+            return torch.sum(self.pd.log_prob(x),dim=-1,keepdim=True)
+        else:
+            return self.pd.log_prob(x)
     def sample(self):
         return self.pd.sample()
 
