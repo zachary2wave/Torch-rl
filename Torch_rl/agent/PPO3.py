@@ -55,8 +55,8 @@ class PPO_Agent(Agent_policy_based):
         #torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
 
         super(PPO_Agent, self).__init__(path)
-        example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
-        self.writer.add_graph(self.policy, input_to_model=example_input)
+        #example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
+        #self.writer.add_graph(self.policy, input_to_model=example_input)
 
         self.backward_step_show_list = ["pg_loss", "entropy", "vf_loss"]
         self.backward_ep_show_list = ["pg_loss", "entropy", "vf_loss"]
