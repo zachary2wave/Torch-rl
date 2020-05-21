@@ -86,7 +86,7 @@ class Agent_policy_based(ABC):
         sample_generate = self.runner(self.sample_rollout, self.sample_ep, max_ep_cycle, record_ep_inter, lstm_enable=self.lstm_enable)
         while self.step < max_step:
             sample = next(sample_generate)
-            logger.record_tabular("01.step", self.step)
+            logger.record_tabular("steps", self.step)
             logger.record_tabular("02.episode",self.episode)
             logger.record_tabular("03.rollout", rollout)
             logger.record_tabular("04.rollout/ep", sample["ep_used"])
