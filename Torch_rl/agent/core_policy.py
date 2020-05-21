@@ -42,7 +42,6 @@ class Agent_policy_based(ABC):
         self.writer = loggerCEN.writer
         self.path = path
 
-
     def imitation_learning(self):
         pass
 

@@ -69,10 +69,19 @@ class PPO_Agent(Agent_policy_based):
 
     def update(self, sample):
         step_len = len(sample["s"])
-
-        time_round = np.ceil(step_len/self.batch_size)
-        time_left = time_round*self.batch_size-step_len
-        array = list(range(step_len)) +list(range(int(time_left)))
+        if self.lstm_enable:
+            flagin = [time for time in range(step_len) if sample["tr"][time]==1]
+            time_round = len(flagin)
+            array_index = []
+            for train_time in range(int(time_round)-1):
+                array_index.append(range(flagin[train_time], flagin[train_time+1]))
+        else:
+            time_round = np.ceil(step_len/self.batch_size)
+            time_left = time_round*self.batch_size-step_len
+            array = list(range(step_len)) +list(range(int(time_left)))
+            array_index = []
+            for train_time in range(int(time_round)):
+                array_index.append(array[train_time * self.batch_size: (train_time + 1) * self.batch_size])
         loss_re, pgloss_re, enloss_re, vfloss_re = [], [], [], []
 
         for key in sample.keys():
@@ -81,10 +90,8 @@ class PPO_Agent(Agent_policy_based):
                 sample[key] = temp.cuda()
             else:
                 sample[key] = temp
-
-
         for train_time in range(int(time_round)):
-            index = array[train_time*self.batch_size: (train_time+1)*self.batch_size]
+            index = array_index[train_time]
         # for index in range(step_len):
             training_s = sample["s"][index].detach()
             training_a = sample["a"][index].detach()

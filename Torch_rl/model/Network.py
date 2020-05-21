@@ -295,18 +295,24 @@ class LSTM_Dense_Hin(nn.Module):
 
     def init_H_C(self, batch_size):
         if self.gpu:
-            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device),
-                    Variable(torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device))
+            return (Variable(torch.normal(mean=torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device)),
+                    Variable(torch.normal(mean=torch.zeros(1, batch_size, self.lstm_unit)).cuda(self.device)))
         else:
-            return (Variable(torch.zeros(1, batch_size, self.lstm_unit)),
-                    Variable(torch.zeros(1, batch_size, self.lstm_unit)))
+            return (Variable(torch.normal(mean=torch.zeros(1, batch_size, self.lstm_unit))),
+                    Variable(torch.normal(mean=torch.zeros(1, batch_size, self.lstm_unit))))
 
     def forward(self, x):
         if self.gpu:
             x = x.cuda(self.device)
-        x = x.unsqueeze(1)
+        if len(x.shape) == 1:
+            # forward
+            x = x.unsqueeze(0)
+            x = x.unsqueeze(0)
+        elif len(x.shape) == 2:
+            # backward
+            x = x.unsqueeze(1)
         if self.h_state is None:
-            self.h_state = self.init_H_C(x.size(1))
+            self.h_state = self.init_H_C(1)
         x, self.h_state = self.LSTM(x, self.h_state)
         x = self.hidden_activate(x)
         x = self.Dense(x)

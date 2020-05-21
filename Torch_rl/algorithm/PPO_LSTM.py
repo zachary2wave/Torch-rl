@@ -54,9 +54,6 @@ class PPO_Agent(Agent_policy_based):
             self.value_model_decay_optim = torch.optim.lr_scheduler.ExponentialLR(self.value_model_optim, decay_rate,
                                                                              last_epoch=-1)
 
-        #torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1, norm_type=2)
-        #torch.nn.utils.clip_grad_norm_(self.value.parameters(), 1, norm_type=2)
-
         super(PPO_Agent, self).__init__(path)
         #example_input = Variable(torch.rand((100,)+self.env.observation_space.shape))
         #self.writer.add_graph(self.policy, input_to_model=example_input)
@@ -68,7 +65,7 @@ class PPO_Agent(Agent_policy_based):
         self.running_step = 0
         self.record_sample = None
         self.training_step = 0
-
+        self.lstm_enable = True
 
     def update(self, sample):
         step_len = len(sample["s"])
