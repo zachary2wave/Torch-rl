@@ -150,6 +150,8 @@ class Agent_policy_based(ABC):
         else:
             buffer = ReplayMemory(sample_ep*max_ep_step, ["value", "logp"])
         s = self.env.reset()
+        if lstm_enable:
+            self.policy.reset_h()
         ep_reward, ep_Q_value, ep_step_used = [], [], []
         ep_r, ep_q, ep_cycle = 0, 0, 0
         while True:
