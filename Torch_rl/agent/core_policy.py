@@ -154,26 +154,25 @@ class Agent_policy_based(ABC):
             s = torch.from_numpy(s.astype(np.float32))
             with torch.no_grad():
                 outcome = self.policy.forward(s.unsqueeze(0))
-                Q = self.value.forward(s.unsqueeze(0)).squeeze(0)
+                Q = self.value.forward(s.unsqueeze(0))
             pd = self.dist(outcome)
-            a = pd.sample().squeeze(0)
-            s_, r, done, info = self.env.step(a.cpu().numpy())
+            a = pd.sample()
+            s_, r, done, info = self.env.step(a.cpu().squeeze(0).numpy())
             if self.render:
                 self.env.render()
             ep_r += r
             ep_q += Q
             ep_cycle +=1
             self.step += 1
-
             logp = pd.log_prob(a)
             sample_ = {
                 "s": s,
-                "a": a,
+                "a": a.squeeze(0),
                 "r": torch.tensor(np.array([r]).astype(np.float32)),
                 "tr": torch.tensor([int(done)]),
                 "s_":torch.from_numpy(s_),
-                "logp": logp,
-                "value": Q}
+                "logp": logp.squeeze(0),
+                "value": Q.squeeze(0)}
             buffer.push(sample_)
             s = deepcopy(s_)
 
