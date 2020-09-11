@@ -12,3 +12,5 @@ savedate/.DS_Store
 *.iml
 *.xml
 Torch_rl/agent/.DS_Store
+*.pkl
+*.0

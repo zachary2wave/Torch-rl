@@ -151,14 +151,12 @@ class Agent_policy_based(ABC):
         ep_reward, ep_Q_value, ep_step_used = [], [], []
         ep_r, ep_q, ep_cycle = 0, 0, 0
         while True:
-            # s = s[np.newaxis, :].astype(np.float32)
             s = torch.from_numpy(s.astype(np.float32))
             with torch.no_grad():
-                outcome = self.policy.forward(s)
-                Q = self.value.forward(s)
+                outcome = self.policy.forward(s.unsqueeze(0))
+                Q = self.value.forward(s.unsqueeze(0)).squeeze(0)
             pd = self.dist(outcome)
-            a = pd.sample()
-            #print(self.step, s[0,0], s[0,1], a[0], a[1])
+            a = pd.sample().squeeze(0)
             s_, r, done, info = self.env.step(a.cpu().numpy())
             if self.render:
                 self.env.render()
