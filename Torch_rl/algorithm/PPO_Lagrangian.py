@@ -72,7 +72,9 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
         self.record_sample = None
         self.training_step = 0
 
-        self.ui = Variable()
+        self.ui = torch.tensor(1,require_grad=True)
+        self.ui_optim = Adam(self.ui, lr=lr)
+
 
     def update(self, sample):
 
@@ -179,12 +181,11 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
             enloss_re.append(entropy.cpu().detach().numpy())
             vfloss_re.append(vf_loss1.cpu().detach().numpy())
         "training the weights ui"
-
-
-
-
-
-
+        for i in sample["cost"]:
+            cost = self.ui*sample["cost"]
+            self.ui_optim.zero_grad()
+            cost.backward()
+            self.ui_optim.step()
 
 
         return np.sum(loss_re), {"pg_loss": np.sum(pgloss_re),
