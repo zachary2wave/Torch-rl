@@ -48,7 +48,7 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
 
         self.policy_model_optim = Adam(self.policy.parameters(), lr=lr)
         self.value_model_optim = Adam(self.value.parameters(), lr=lr, weight_decay=value_regular)
-        self.value_model_optim = Adam(self.cost_value.parameters(), lr=lr, weight_decay=value_regular)
+        self.cost_value_model_optim = Adam(self.cost_value.parameters(), lr=lr, weight_decay=value_regular)
         if decay:
             self.policy_model_decay_optim = torch.optim.lr_scheduler.ExponentialLR(self.policy_model_optim, decay_rate,
                                                                             last_epoch=-1)
@@ -128,6 +128,9 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
             old_neglogp = sample["logp"][index].detach()
             advs = sample["advs"][index].detach()
             c_advs = sample["cost_advs"][index].detach()
+            c_value = sample["cost_value"][index].detach()
+            cost = sample["cost"][index].detach()
+
             " CALCULATE THE LOSS"
             " Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss"
 
@@ -174,8 +177,15 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
                 self.value_model_optim.zero_grad()
                 vf_loss1.backward()
                 self.value_model_optim.step()
-            # approxkl = self.loss_cal(neg_log_pac, self.record_sample["neglogp"])
-            # self.cliprange = torch.gt(torch.abs(ratio - 1.0).mean(), self.cliprange)
+
+                cost_now = self.cost_value.forward(training_s)
+                cost_vloss = self.loss_cal(cost_now, cost)
+
+                self.cost_value_model_optim.zero_grad()
+                cost_vloss.backward()
+                self.cost_value_model_optim.step()
+
+
             loss_re = loss.cpu().detach().numpy()
             pgloss_re.append(pg_loss.cpu().detach().numpy())
             enloss_re.append(entropy.cpu().detach().numpy())
