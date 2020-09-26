@@ -207,38 +207,6 @@ class Agent_value_based(ABC):
         raise NotImplementedError()
 
 
-    def Imitation_Learning(self, step_time, data=None, policy=None, verbose=2):
-        '''
-        :param data:  the data is a list, and each element is a dict with 5 keys s,a,r,s_,tr
-        sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
-        :param policy:
-        :return:
-        '''
-        if data is not None and policy is not None:
-            raise Exception("The IL only need one way to guide, Please make sure the input ")
-
-        if data is not None:
-            for time in step_time:
-                self.step += 1
-                loss = self.backward(data[time])
-                if verbose == 1:
-                    logger.record_tabular("steps", self.step)
-                    logger.record_tabular("loss", loss)
-                    logger.dumpkvs()
-
-        if policy is not None:
-            s = self.env.reset()
-            for time in step_time:
-                self.step += 1
-                a = policy(s)
-                s_, r, done, info = self.env.step(a)
-                sample = {"s": s, "a": a, "s_": s_, "r": r, "tr": done}
-                loss = self.backward(sample)
-                s = s_
-                if verbose == 1:
-                    logger.record_tabular("steps", self.step)
-                    logger.record_tabular("loss", loss)
-                    logger.dumpkvs()
 
 
 

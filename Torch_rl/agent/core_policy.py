@@ -6,7 +6,7 @@ from Torch_rl.common import logger
 from Torch_rl.common.logger import CSVOutputFormat
 from Torch_rl.common.memory import ReplayMemory
 from Torch_rl.common.distribution import *
-from Torch_rl.common.util import get_gae
+
 from Torch_rl.common.util import csv_record
 
 
@@ -95,11 +95,8 @@ class Agent_policy_based(ABC):
             logger.record_tabular("08.mean_ep_step_used", np.mean(sample["ep_step_used"]))
             logger.dump_tabular()
             csv_record(sample["ep_reward"], self.path)
-            returns, advants = get_gae(sample["buffer"]["r"], sample["buffer"]["tr"], sample["buffer"]["value"], self.gamma, self.lam)
-            # record_sample = gae(sample["buffer"], sample["last_Q"], self.gamma, self.lam)
             record_sample = sample["buffer"]
-            record_sample["advs"] = advants.unsqueeze(1)
-            record_sample["return"] = returns.unsqueeze(1)
+
             rollout += 1
 
             if self.step > learning_start and self.learning:
@@ -144,9 +141,9 @@ class Agent_policy_based(ABC):
 
     def runner(self, sample_step=None, sample_ep=None, max_ep_step=2000, record_ep_inter=None, lstm_enable=False):
         if sample_step is not None:
-            buffer = ReplayMemory(sample_step, ["value", "logp"])
+            buffer = ReplayMemory(sample_step, ["value", "logp","info"])
         else:
-            buffer = ReplayMemory(sample_ep*max_ep_step, ["value", "logp"])
+            buffer = ReplayMemory(sample_ep*max_ep_step, ["value", "logp","info"])
         s = self.env.reset()
         ep_reward, ep_Q_value, ep_step_used = [], [], []
         ep_r, ep_q, ep_cycle = 0, 0, 0
@@ -172,7 +169,8 @@ class Agent_policy_based(ABC):
                 "tr": torch.tensor([int(done)]),
                 "s_":torch.from_numpy(s_),
                 "logp": logp.squeeze(0),
-                "value": Q.squeeze(0)}
+                "value": Q.squeeze(0),
+                "info": info}
             buffer.push(sample_)
             s = deepcopy(s_)
 
@@ -211,9 +209,9 @@ class Agent_policy_based(ABC):
                            }
                     ep_reward, ep_Q_value, ep_step_used = [], [], []
                     if sample_step is not None:
-                        buffer = ReplayMemory(sample_step, ["value", "logp"])
+                        buffer = ReplayMemory(sample_step, ["value", "logp","info"])
                     else:
-                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp"])
+                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp","info"])
 
             else:
                 if self.step > 0 and self.episode % sample_ep==0:
@@ -233,9 +231,9 @@ class Agent_policy_based(ABC):
                            }
                     ep_reward, ep_Q_value = [], []
                     if sample_step is not None:
-                        buffer = ReplayMemory(sample_step, ["value", "logp"])
+                        buffer = ReplayMemory(sample_step, ["value", "logp","info"])
                     else:
-                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp"])
+                        buffer = ReplayMemory(sample_ep * max_ep_step, ["value", "logp","info"])
 
 
     def update(self, sample):

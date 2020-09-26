@@ -6,7 +6,7 @@ from Torch_rl.agent.DDPG import DDPG_Agent as DDPG
 from Torch_rl.temp_file.PPO import PPO_Agent as Batch_PPO
 from Torch_rl.agent.PPO import PPO_Agent as PPO
 from Torch_rl.agent.TD3 import TD3_Agent as TD3
-from Torch_rl.algorithm.HIRO import HIRO_Agent as HIRO
+from Torch_rl.Hierarchical_RL.HIRO import HIRO_Agent as HIRO
 
 #  network
 from Torch_rl.model.Network import DenseNet

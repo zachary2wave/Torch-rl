@@ -36,7 +36,6 @@ class Multi_in(nn.Module):
 
         x3 = self.hidden_activate(self.up_layer1(x3))
         x3 = self.hidden_activate(self.up_layer2(x3))
-        run_xxxxxxxxxxx
         x = torch.cat([x1,x2,x3], dim=-1)
         x = self.hidden_activate(self.down_layer1(x))
         x = self.hidden_activate(self.down_layer2(x))

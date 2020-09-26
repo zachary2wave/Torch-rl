@@ -57,6 +57,38 @@ class ReplayMemory(Memory):
             sample[key] = torch.from_numpy(sample[key])
         return sample
 
+    def sample_episode(self):
+        flag = []
+        for f,i in enumerate(self.memory["tr"]):
+            if i:
+                flag.append(f)
+        end_place = 0
+        while end_place == 0:
+            end_place = random.choice(list(range(len(flag))))
+        sample = {}
+        for key in self.memory.keys():
+            sample[key] = []
+        for key in self.memory.keys():
+            sample[key] = self.memory[key][flag[end_place-1]:flag[end_place]]
+            sample[key] = np.array(sample[key], dtype=np.float32)
+            sample[key] = torch.from_numpy(sample[key])
+        return sample
+
+    def sample_fragment(self,length):
+        end_place = 0
+        while end_place < 0:
+            end_place = random.choice(list(range(self.position)))
+        sample = {}
+        for key in self.memory.keys():
+            sample[key] = []
+        for key in self.memory.keys():
+            sample[key] = self.memory[key][end_place-length:end_place]
+            sample[key] = np.array(sample[key], dtype=np.float32)
+            sample[key] = torch.from_numpy(sample[key])
+        return sample
+
+
+
     def __len__(self):
         return len(self.memory)
 
