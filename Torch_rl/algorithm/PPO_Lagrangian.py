@@ -7,6 +7,14 @@ from torch.optim import Adam
 from torch.autograd import Variable
 from Torch_rl.common.util import get_gae
 
+
+class ui_model(torch.nn.Module):
+    def __init__(self):
+        self.ui = torch.nn.parameter.Parameter([1], require_grad=True)
+    def forward(self, x):
+        x = self.ui * x
+        return x
+
 class PPO_LAGRANGIAN_Agent(Agent_policy_based):
     def __init__(self, env, policy_model, value_model,
                  lr=5e-4, ent_coef=0.01, vf_coef=0.5,
@@ -72,8 +80,8 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
         self.record_sample = None
         self.training_step = 0
 
-        self.ui = torch.tensor(1,require_grad=True)
-        self.ui_optim = Adam(self.ui, lr=lr)
+        self.ui = ui_model()
+        self.ui_optim = Adam(self.ui.parameters(), lr=lr)
 
 
     def update(self, sample):
@@ -192,7 +200,7 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
             vfloss_re.append(vf_loss1.cpu().detach().numpy())
         "training the weights ui"
         for i in sample["cost"]:
-            cost = self.ui*sample["cost"]
+            cost = self.ui*sample["cost_value"]
             self.ui_optim.zero_grad()
             cost.backward()
             self.ui_optim.step()
@@ -217,3 +225,7 @@ class PPO_LAGRANGIAN_Agent(Agent_policy_based):
         self.value.to_gpu()
         self.loss_cal = self.loss_cal.cuda()
         self.gpu = True
+
+
+
+
